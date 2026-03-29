@@ -1,16 +1,8 @@
 /**
- * Compose user answers into a natural language prompt.
- *
- * This runs locally (no model call) — deterministic composition from structured answers.
+ * Compose quiz answers into a natural language prompt.
+ * Deterministic — no model call needed.
  */
-import type { InterviewQuestion, InterviewAnswer, InterviewSubmission } from "../core/types.js";
-/**
- * Compose interview answers into a natural-language prompt string.
- * No model call needed — this is deterministic mapping.
- */
-export declare function composePrompt(questions: InterviewQuestion[], answers: InterviewAnswer[], maxChars: number): string;
-/**
- * Build a full InterviewSubmission from questions, answers, and timing.
- */
-export declare function buildSubmission(questions: InterviewQuestion[], answers: InterviewAnswer[], maxChars: number, startTime: number, cancelled: boolean): InterviewSubmission;
+import type { QuizQuestion, QuizAnswer, QuizSubmission } from "../core/types.js";
+export declare function composePrompt(questions: QuizQuestion[], answers: QuizAnswer[], maxChars: number): string;
+export declare function buildSubmission(questions: QuizQuestion[], answers: QuizAnswer[], maxChars: number, startTime: number, cancelled: boolean): QuizSubmission;
 //# sourceMappingURL=compose-template.d.ts.map

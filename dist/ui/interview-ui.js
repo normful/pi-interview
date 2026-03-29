@@ -1,31 +1,20 @@
 /**
- * Interview UI component for pi TUI.
+ * Quiz UI — always multiple choice.
  *
- * Renders as a widget below the editor (not a modal) showing:
- * - Multiple choice questions with ↑↓ navigation
- * - Optional text input for notes
- * - Tab to navigate between questions
- * - Enter to accept, Esc to dismiss
- *
- * Inspired by pi's questionnaire.ts example but adapted for the
- * non-blocking widget-below-editor pattern.
+ * Every question shows numbered options + "Type something else..." at the bottom.
+ * Single question → selecting auto-submits. Multiple → Tab between, Enter to confirm.
  */
 import { buildSubmission } from "../prompts/compose-template.js";
-/**
- * Show interview questions via ctx.ui.custom().
- * Returns the submission result.
- */
-export async function showInterviewUI(ctx, questions, config) {
+export async function showQuizUI(ctx, questions, config) {
     const startTime = Date.now();
     if (!ctx.hasUI || questions.length === 0) {
         return buildSubmission(questions, [], config.maxPromptChars, startTime, true);
     }
     return ctx.ui.custom((tui, theme, _kb, done) => {
-        // State
-        let currentQuestion = 0;
-        let optionIndex = 0;
-        let textInput = "";
+        let currentQ = 0;
+        let optionIdx = 0;
         let textMode = false;
+        let textInput = "";
         const answers = new Map();
         let cachedLines;
         function refresh() {
@@ -33,23 +22,21 @@ export async function showInterviewUI(ctx, questions, config) {
             tui.requestRender();
         }
         function q() {
-            return questions[currentQuestion];
+            return questions[currentQ];
+        }
+        /** Total selectable rows: options + "Type something else..." */
+        function rowCount() {
+            return q().options.length + 1;
         }
         function submit(cancelled) {
             const allAnswers = questions.map((question) => {
-                const existing = answers.get(question.id);
-                return (existing ?? {
-                    questionId: question.id,
-                    skipped: true,
-                });
+                return answers.get(question.id) ?? { questionId: question.id, skipped: true };
             });
             done(buildSubmission(questions, allAnswers, config.maxPromptChars, startTime, cancelled));
         }
         function selectOption() {
             const question = q();
-            if (!question.options)
-                return;
-            const opt = question.options[optionIndex];
+            const opt = question.options[optionIdx];
             if (!opt)
                 return;
             if (question.type === "single") {
@@ -58,70 +45,69 @@ export async function showInterviewUI(ctx, questions, config) {
                     selectedOptions: [opt.label],
                     skipped: false,
                 });
-                // Auto-advance or submit
-                if (questions.length === 1 && config.autoSubmitQuickActions) {
+                // Single question → auto submit; multi-question → advance
+                if (questions.length === 1 && config.autoSubmitSingle) {
                     submit(false);
                     return;
                 }
-                advanceQuestion();
+                advance();
             }
-            else if (question.type === "multi") {
+            else {
+                // Multi: toggle
                 const existing = answers.get(question.id);
-                const selected = existing?.selectedOptions ?? [];
+                const selected = existing?.selectedOptions ? [...existing.selectedOptions] : [];
                 const idx = selected.indexOf(opt.label);
-                if (idx >= 0) {
+                if (idx >= 0)
                     selected.splice(idx, 1);
-                }
-                else {
+                else
                     selected.push(opt.label);
-                }
                 answers.set(question.id, {
                     questionId: question.id,
-                    selectedOptions: [...selected],
+                    selectedOptions: selected,
                     skipped: selected.length === 0,
                 });
                 refresh();
             }
         }
-        function advanceQuestion() {
-            if (currentQuestion < questions.length - 1) {
-                currentQuestion++;
-                optionIndex = 0;
-                textInput = "";
+        function advance() {
+            if (currentQ < questions.length - 1) {
+                currentQ++;
+                optionIdx = 0;
                 textMode = false;
+                textInput = "";
             }
             else {
-                // All questions answered — submit
                 submit(false);
             }
             refresh();
         }
         function handleInput(data) {
-            // Text input mode
-            if (textMode || q().type === "text") {
-                if (data === "\x1b" || data === "\x1b[D") {
-                    // Escape or left — exit text mode
-                    if (textMode) {
-                        textMode = false;
-                        refresh();
-                        return;
-                    }
-                    submit(true);
+            // ── Text mode ──
+            if (textMode) {
+                if (data === "\x1b") {
+                    textMode = false;
+                    refresh();
                     return;
                 }
                 if (data === "\r" || data === "\n") {
-                    // Enter — save text and advance
-                    answers.set(q().id, {
-                        questionId: q().id,
-                        text: textInput.trim() || undefined,
-                        skipped: !textInput.trim(),
-                    });
+                    if (textInput.trim()) {
+                        answers.set(q().id, {
+                            questionId: q().id,
+                            text: textInput.trim(),
+                            skipped: false,
+                        });
+                    }
                     textMode = false;
-                    advanceQuestion();
+                    textInput = "";
+                    if (questions.length === 1 && config.autoSubmitSingle) {
+                        submit(false);
+                    }
+                    else {
+                        advance();
+                    }
                     return;
                 }
                 if (data === "\x7f" || data === "\b") {
-                    // Backspace
                     textInput = textInput.slice(0, -1);
                     refresh();
                     return;
@@ -133,43 +119,37 @@ export async function showInterviewUI(ctx, questions, config) {
                 }
                 return;
             }
-            // Navigation
-            if (data === "\x1b[A") {
-                // Up
-                optionIndex = Math.max(0, optionIndex - 1);
+            // ── Navigation ──
+            if (data === "\x1b[A") { // Up
+                optionIdx = Math.max(0, optionIdx - 1);
                 refresh();
                 return;
             }
-            if (data === "\x1b[B") {
-                // Down
-                const opts = q().options ?? [];
-                optionIndex = Math.min(opts.length, optionIndex + 1); // +1 for "type something" option
+            if (data === "\x1b[B") { // Down
+                optionIdx = Math.min(rowCount() - 1, optionIdx + 1);
                 refresh();
                 return;
             }
-            if (data === "\x1b[C" || data === "\t") {
-                // Right / Tab — next question
-                if (questions.length > 1 && currentQuestion < questions.length - 1) {
-                    currentQuestion++;
-                    optionIndex = 0;
+            if (data === "\t" || data === "\x1b[C") { // Tab / Right
+                if (questions.length > 1) {
+                    currentQ = (currentQ + 1) % questions.length;
+                    optionIdx = 0;
                     refresh();
                 }
                 return;
             }
-            if (data === "\x1b[D" || data === "\x1b\t") {
-                // Left / Shift-Tab — prev question
-                if (currentQuestion > 0) {
-                    currentQuestion--;
-                    optionIndex = 0;
+            if (data === "\x1b\t" || data === "\x1b[D") { // Shift-Tab / Left
+                if (questions.length > 1) {
+                    currentQ = (currentQ - 1 + questions.length) % questions.length;
+                    optionIdx = 0;
                     refresh();
                 }
                 return;
             }
-            // Enter — select
+            // ── Select ──
             if (data === "\r" || data === "\n") {
-                const opts = q().options ?? [];
-                if (optionIndex === opts.length) {
-                    // "Type something" option
+                if (optionIdx === q().options.length) {
+                    // "Type something else..."
                     textMode = true;
                     textInput = "";
                     refresh();
@@ -178,28 +158,27 @@ export async function showInterviewUI(ctx, questions, config) {
                 selectOption();
                 return;
             }
-            // Space — also select for single
-            if (data === " " && q().type === "single") {
-                const opts = q().options ?? [];
-                if (optionIndex < opts.length) {
-                    selectOption();
-                    return;
-                }
+            // Space also selects for single
+            if (data === " " && q().type === "single" && optionIdx < q().options.length) {
+                selectOption();
+                return;
             }
-            // Escape — dismiss
+            // ── Number keys ──
+            const num = parseInt(data, 10);
+            if (!isNaN(num) && num >= 1 && num <= q().options.length) {
+                optionIdx = num - 1;
+                selectOption();
+                return;
+            }
+            // ── Multi: confirm selection and advance ──
+            if (data === "\r" && q().type === "multi") {
+                advance();
+                return;
+            }
+            // ── Escape ──
             if (data === "\x1b") {
                 submit(true);
                 return;
-            }
-            // Number keys for quick select
-            const num = parseInt(data, 10);
-            if (!isNaN(num) && num >= 1) {
-                const opts = q().options ?? [];
-                if (num <= opts.length) {
-                    optionIndex = num - 1;
-                    selectOption();
-                    return;
-                }
             }
         }
         function render(width) {
@@ -207,76 +186,71 @@ export async function showInterviewUI(ctx, questions, config) {
                 return cachedLines;
             const lines = [];
             const w = Math.max(20, width);
+            const question = q();
+            const selected = answers.get(question.id)?.selectedOptions ?? [];
             // Header
             lines.push(theme.fg("accent", "─".repeat(w)));
-            const title = questions.length > 1
-                ? ` ✦ Interview (${currentQuestion + 1}/${questions.length})`
-                : " ✦ Interview";
-            lines.push(theme.fg("accent", theme.bold(title)));
-            lines.push("");
-            const question = q();
-            // Question text
-            lines.push(` ${theme.fg("text", question.text)}`);
-            lines.push("");
-            if (textMode || question.type === "text") {
-                // Text input mode
-                const placeholder = question.placeholder || "Type your instruction...";
-                const displayText = textInput || theme.fg("dim", placeholder);
-                lines.push(` ${theme.fg("muted", "▸")} ${displayText}${theme.fg("accent", "█")}`);
-                lines.push("");
-                lines.push(theme.fg("dim", " Enter to submit · Esc to cancel"));
+            // Title with question counter
+            if (questions.length > 1) {
+                const dots = questions.map((_, i) => {
+                    const answered = answers.has(questions[i].id);
+                    const active = i === currentQ;
+                    const dot = answered ? "●" : "○";
+                    return active ? theme.fg("accent", dot) : theme.fg("dim", dot);
+                }).join(" ");
+                lines.push(` ${theme.fg("accent", "✦")} ${dots}`);
             }
-            else if (question.options) {
+            else {
+                lines.push(` ${theme.fg("accent", "✦")}`);
+            }
+            // Question text
+            lines.push(` ${theme.fg("text", theme.bold(question.text))}`);
+            lines.push("");
+            if (textMode) {
+                // Freeform input
+                const display = textInput || theme.fg("dim", "Type your instruction...");
+                lines.push(`  ${theme.fg("accent", "▸")} ${display}${theme.fg("accent", "█")}`);
+                lines.push("");
+                lines.push(theme.fg("dim", "  Enter submit · Esc back"));
+            }
+            else {
                 // Options
                 const opts = question.options;
-                const selected = answers.get(question.id)?.selectedOptions ?? [];
                 for (let i = 0; i < opts.length; i++) {
                     const opt = opts[i];
-                    const isSelected = i === optionIndex;
-                    const isChecked = selected.includes(opt.label);
-                    const prefix = isSelected
-                        ? theme.fg("accent", "▸ ")
-                        : "  ";
-                    const checkbox = question.type === "multi"
-                        ? (isChecked ? theme.fg("success", "■ ") : theme.fg("dim", "□ "))
+                    const active = i === optionIdx;
+                    const checked = selected.includes(opt.label);
+                    const pointer = active ? theme.fg("accent", "▸") : " ";
+                    const check = question.type === "multi"
+                        ? (checked ? theme.fg("success", "■") : theme.fg("dim", "□"))
                         : "";
-                    const label = isSelected
-                        ? theme.fg("accent", `${i + 1}. ${opt.label}`)
-                        : theme.fg("text", `${i + 1}. ${opt.label}`);
-                    lines.push(`${prefix}${checkbox}${label}`);
+                    const num = theme.fg("dim", `${i + 1}`);
+                    const label = active
+                        ? theme.fg("accent", opt.label)
+                        : theme.fg("text", opt.label);
+                    lines.push(` ${pointer} ${check}${check ? " " : ""}${num} ${label}`);
                     if (opt.description) {
                         lines.push(`     ${theme.fg("dim", opt.description)}`);
                     }
                 }
-                // "Type something" option
-                const isTypeSelected = optionIndex === opts.length;
-                const typePrefix = isTypeSelected
-                    ? theme.fg("accent", "▸ ")
-                    : "  ";
-                const typeLabel = isTypeSelected
-                    ? theme.fg("accent", `${opts.length + 1}. Type something else...`)
-                    : theme.fg("muted", `${opts.length + 1}. Type something else...`);
-                lines.push(`${typePrefix}${typeLabel}`);
+                // "Type something else..." option
+                const typeActive = optionIdx === opts.length;
+                const pointer = typeActive ? theme.fg("accent", "▸") : " ";
+                const label = typeActive
+                    ? theme.fg("accent", "Type something else...")
+                    : theme.fg("muted", "Type something else...");
+                lines.push(` ${pointer}   ${label}`);
                 lines.push("");
-                // Navigation hints
-                const hints = [];
-                hints.push("↑↓ select");
+                // Hints
+                const hints = ["↑↓ navigate"];
                 if (question.type === "single")
-                    hints.push("Enter/# accept");
+                    hints.push("Enter/#");
                 if (question.type === "multi")
-                    hints.push("Enter toggle · Tab next");
+                    hints.push("Enter toggle");
                 if (questions.length > 1)
-                    hints.push("Tab/←→ navigate");
+                    hints.push("Tab next");
                 hints.push("Esc dismiss");
-                lines.push(theme.fg("dim", ` ${hints.join(" · ")}`));
-            }
-            // Answered summary (for multi-question)
-            if (questions.length > 1) {
-                const answeredCount = questions.filter((q) => answers.has(q.id)).length;
-                if (answeredCount > 0) {
-                    lines.push("");
-                    lines.push(theme.fg("dim", ` Answered: ${answeredCount}/${questions.length}`));
-                }
+                lines.push(theme.fg("dim", ` ${hints.join("  ·  ")}`));
             }
             lines.push(theme.fg("accent", "─".repeat(w)));
             cachedLines = lines;
@@ -284,9 +258,7 @@ export async function showInterviewUI(ctx, questions, config) {
         }
         return {
             render,
-            invalidate: () => {
-                cachedLines = undefined;
-            },
+            invalidate: () => { cachedLines = undefined; },
             handleInput,
         };
     });

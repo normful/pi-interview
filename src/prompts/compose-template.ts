@@ -1,22 +1,13 @@
 /**
- * Compose user answers into a natural language prompt.
- *
- * This runs locally (no model call) — deterministic composition from structured answers.
+ * Compose quiz answers into a natural language prompt.
+ * Deterministic — no model call needed.
  */
 
-import type {
-  InterviewQuestion,
-  InterviewAnswer,
-  InterviewSubmission,
-} from "../core/types.js";
+import type { QuizQuestion, QuizAnswer, QuizSubmission } from "../core/types.js";
 
-/**
- * Compose interview answers into a natural-language prompt string.
- * No model call needed — this is deterministic mapping.
- */
 export function composePrompt(
-  questions: InterviewQuestion[],
-  answers: InterviewAnswer[],
+  questions: QuizQuestion[],
+  answers: QuizAnswer[],
   maxChars: number
 ): string {
   const parts: string[] = [];
@@ -24,15 +15,10 @@ export function composePrompt(
   for (const answer of answers) {
     if (answer.skipped) continue;
 
-    const question = questions.find((q) => q.id === answer.questionId);
-    if (!question) continue;
-
     if (answer.selectedOptions && answer.selectedOptions.length > 0) {
       if (answer.selectedOptions.length === 1) {
-        // Single selection — use it directly as the instruction
         parts.push(answer.selectedOptions[0]);
       } else {
-        // Multi selection — combine
         parts.push(answer.selectedOptions.join(", then "));
       }
     }
@@ -44,29 +30,10 @@ export function composePrompt(
 
   if (parts.length === 0) return "";
 
-  // Join parts with natural connectors
-  let composed: string;
-  if (parts.length === 1) {
-    composed = parts[0];
-  } else {
-    // Combine with periods or semicolons based on content
-    composed = parts
-      .map((p) => {
-        // Ensure each part ends with punctuation or is a short phrase
-        const trimmed = p.trim();
-        if (
-          trimmed.endsWith(".") ||
-          trimmed.endsWith("!") ||
-          trimmed.endsWith("?")
-        ) {
-          return trimmed;
-        }
-        return trimmed;
-      })
-      .join(". ");
-  }
+  let composed = parts.length === 1
+    ? parts[0]
+    : parts.join(". ");
 
-  // Truncate if needed
   if (composed.length > maxChars) {
     composed = composed.slice(0, maxChars - 1) + "…";
   }
@@ -74,16 +41,13 @@ export function composePrompt(
   return composed;
 }
 
-/**
- * Build a full InterviewSubmission from questions, answers, and timing.
- */
 export function buildSubmission(
-  questions: InterviewQuestion[],
-  answers: InterviewAnswer[],
+  questions: QuizQuestion[],
+  answers: QuizAnswer[],
   maxChars: number,
   startTime: number,
   cancelled: boolean
-): InterviewSubmission {
+): QuizSubmission {
   return {
     answers,
     composedPrompt: cancelled ? "" : composePrompt(questions, answers, maxChars),

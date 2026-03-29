@@ -1,8 +1,8 @@
 {
-  "name": "pi-interview",
+  "name": "pi-quiz",
   "version": "0.1.0",
   "type": "module",
-  "description": "Interactive next-prompt interview extension for pi — structured questions instead of passive ghost text",
+  "description": "Multiple-choice next-prompt quiz for pi — structured options instead of passive ghost text",
   "license": "MIT",
   "main": "dist/index.js",
   "pi": {

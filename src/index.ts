@@ -1,20 +1,10 @@
 /**
- * pi-interview — Interactive next-prompt interview extension for pi.
+ * pi-quiz — Multiple-choice next-prompt quiz for pi.
  *
- * Instead of passive ghost text suggestions (pi-prompt-suggester),
- * this extension generates structured multiple-choice questions
- * after each agent turn to help the user articulate their next instruction.
+ * After each agent turn, generates structured multiple-choice questions
+ * to help the user decide what to do next. Every question has options.
  *
- * Architecture:
- * 1. Hooks into agent_end → builds TurnContext from conversation signals
- * 2. Calls a lightweight model (haiku) with interview prompt
- * 3. Shows interactive questionnaire via ctx.ui.custom()
- * 4. Composes answers into natural language → injects into editor
- *
- * Context signals (same rich data as prompt-suggester):
- * - assistantText, turnStatus, recentUserPrompts
- * - toolSignals, touchedFiles, unresolvedQuestions
- * - abortContextNote
+ * Ctrl+Q to trigger manually. /quiz for commands.
  */
 
 import type {
@@ -23,44 +13,35 @@ import type {
 } from "@mariozechner/pi-coding-agent";
 import { completeSimple } from "@mariozechner/pi-ai";
 import { buildTurnContext, buildTurnContextFromBranch } from "./core/signals.js";
-import { buildInterviewPromptContext } from "./prompts/interview-template.js";
-import { InterviewModelClient } from "./adapters/model-client.js";
-import { showInterviewUI } from "./ui/interview-ui.js";
-import type {
-  InterviewConfig,
-  TurnContext,
-  InterviewSubmission,
-} from "./core/types.js";
+import { buildQuizPromptContext } from "./prompts/interview-template.js";
+import { QuizModelClient } from "./adapters/model-client.js";
+import { showQuizUI } from "./ui/interview-ui.js";
+import type { TurnContext, QuizSubmission, QuizConfig } from "./core/types.js";
 import { DEFAULT_CONFIG } from "./core/types.js";
 
-export default function interview(pi: ExtensionAPI) {
-  // ─── State ──────────────────────────────────────────────────────────────
-
-  let config: InterviewConfig = { ...DEFAULT_CONFIG };
+export default function quiz(pi: ExtensionAPI) {
+  let config: QuizConfig = { ...DEFAULT_CONFIG };
   let currentContext: ExtensionContext | undefined;
   let lastTurnContext: TurnContext | undefined;
-  let interviewActive = false;
-  let generationEpoch = 0;
+  let quizActive = false;
+  let epoch = 0;
 
-  // ─── Model Client ─────────────────────────────────────────────────────
-
-  const modelClient = new InterviewModelClient(
+  const modelClient = new QuizModelClient(
     { getContext: () => currentContext },
     completeSimple
   );
 
   // ─── Core Flow ────────────────────────────────────────────────────────
 
-  async function runInterview(
+  async function runQuiz(
     turn: TurnContext,
     ctx: ExtensionContext,
-    epoch: number
+    currentEpoch: number
   ): Promise<void> {
-    if (!ctx.hasUI) return;
-    if (interviewActive) return;
-    if (epoch !== generationEpoch) return;
+    if (!ctx.hasUI || quizActive) return;
+    if (currentEpoch !== epoch) return;
 
-    // Skip if the response was trivially short (likely just an ack)
+    // Skip trivially short responses
     if (
       config.skipOnSimpleResponse &&
       turn.assistantText.length < 100 &&
@@ -70,115 +51,85 @@ export default function interview(pi: ExtensionAPI) {
       return;
     }
 
-    interviewActive = true;
+    quizActive = true;
 
     try {
-      // Build prompt context
-      const promptContext = buildInterviewPromptContext(turn, config);
+      const promptContext = buildQuizPromptContext(turn, config);
 
-      // Show loading indicator
-      ctx.ui.setWidget("interview-status", [
-        `  ${ctx.ui.theme.fg("dim", "✦ generating interview questions...")}`,
+      ctx.ui.setWidget("quiz-status", [
+        `  ${ctx.ui.theme.fg("dim", "✦ generating quiz...")}`,
       ], { placement: "belowEditor" });
 
-      // Generate questions
-      const result = await modelClient.generateInterview(promptContext, config);
+      const result = await modelClient.generateQuiz(promptContext, config);
 
-      // Check if we were superseded
-      if (epoch !== generationEpoch) {
-        ctx.ui.setWidget("interview-status", undefined);
+      if (currentEpoch !== epoch) {
+        ctx.ui.setWidget("quiz-status", undefined);
         return;
       }
 
       if (result.skipped || result.questions.length === 0) {
-        // Show brief skip notice then clear
-        ctx.ui.setWidget("interview-status", [
-          `  ${ctx.ui.theme.fg("dim", `✦ no interview needed${result.skipReason ? ` — ${result.skipReason}` : ""}`)}`,
+        ctx.ui.setWidget("quiz-status", [
+          `  ${ctx.ui.theme.fg("dim", `✦ skipped${result.skipReason ? ` — ${result.skipReason}` : ""}`)}`,
         ], { placement: "belowEditor" });
-        setTimeout(() => {
-          ctx.ui.setWidget("interview-status", undefined);
-        }, 3000);
+        setTimeout(() => ctx.ui.setWidget("quiz-status", undefined), 2500);
         return;
       }
 
-      // Clear loading indicator
-      ctx.ui.setWidget("interview-status", undefined);
+      ctx.ui.setWidget("quiz-status", undefined);
 
-      // Show usage info
       if (result.usage) {
-        const cost = result.usage.costTotal
-          ? ` $${result.usage.costTotal.toFixed(4)}`
-          : "";
-        ctx.ui.setStatus(
-          "interview",
-          `✦ interview: ${result.usage.totalTokens} tokens${cost}`
-        );
+        const cost = result.usage.costTotal ? ` $${result.usage.costTotal.toFixed(4)}` : "";
+        ctx.ui.setStatus("quiz", `✦ quiz: ${result.usage.totalTokens} tok${cost}`);
       }
 
-      // Show interactive questionnaire
-      const submission = await showInterviewUI(ctx, result.questions, config);
+      const submission = await showQuizUI(ctx, result.questions, config);
 
-      // Clear status
-      ctx.ui.setStatus("interview", undefined);
+      ctx.ui.setStatus("quiz", undefined);
 
-      // Handle result
-      if (submission.cancelled) {
-        return;
-      }
-
-      if (submission.composedPrompt) {
-        // Inject composed prompt into editor
+      if (!submission.cancelled && submission.composedPrompt) {
         ctx.ui.setEditorText(submission.composedPrompt);
       }
     } catch (error) {
-      ctx.ui.setWidget("interview-status", undefined);
+      ctx.ui.setWidget("quiz-status", undefined);
       const msg = error instanceof Error ? error.message : String(error);
-      ctx.ui.notify(`interview error: ${msg.slice(0, 100)}`, "error");
+      ctx.ui.notify(`quiz error: ${msg.slice(0, 80)}`, "error");
     } finally {
-      interviewActive = false;
+      quizActive = false;
     }
   }
 
-  // ─── Event Hooks ──────────────────────────────────────────────────────
+  // ─── Helpers ──────────────────────────────────────────────────────────
 
-  pi.on("session_start", async (_event, ctx) => {
-    currentContext = ctx;
-    generationEpoch++;
-  });
+  function getTurnFromBranch(ctx: ExtensionContext): TurnContext | undefined {
+    const branchEntries = ctx.sessionManager
+      .getBranch()
+      .filter(
+        (e): e is (typeof e) & { type: "message" } => e.type === "message"
+      );
+    return buildTurnContextFromBranch(branchEntries as any[]) ?? undefined;
+  }
 
-  pi.on("session_switch", async (_event, ctx) => {
-    currentContext = ctx;
-    generationEpoch++;
-    interviewActive = false;
-  });
+  // ─── Events ───────────────────────────────────────────────────────────
 
-  pi.on("session_fork", async (_event, ctx) => {
-    currentContext = ctx;
-    generationEpoch++;
-    interviewActive = false;
-  });
+  pi.on("session_start", async (_ev, ctx) => { currentContext = ctx; epoch++; });
+  pi.on("session_switch", async (_ev, ctx) => { currentContext = ctx; epoch++; quizActive = false; });
+  pi.on("session_fork", async (_ev, ctx) => { currentContext = ctx; epoch++; quizActive = false; });
 
   pi.on("agent_end", async (event, ctx) => {
     currentContext = ctx;
-    const epoch = ++generationEpoch;
+    const e = ++epoch;
 
     if (config.mode !== "auto") return;
 
-    // Build turn context from event messages
     const branchEntries = ctx.sessionManager.getBranch();
     const branchMessages = branchEntries
-      .filter(
-        (entry): entry is (typeof branchEntries)[number] & { type: "message" } =>
-          entry.type === "message"
-      )
+      .filter((entry): entry is (typeof branchEntries)[number] & { type: "message" } => entry.type === "message")
       .map((entry) => entry.message);
-
-    const sourceLeafId =
-      ctx.sessionManager.getLeafId() ?? `turn-${Date.now()}`;
+    const leafId = ctx.sessionManager.getLeafId() ?? `turn-${Date.now()}`;
 
     const turn = buildTurnContext({
-      turnId: sourceLeafId,
-      sourceLeafId,
+      turnId: leafId,
+      sourceLeafId: leafId,
       messagesFromPrompt: event.messages as any[],
       branchMessages: branchMessages as any[],
       occurredAt: new Date().toISOString(),
@@ -186,175 +137,96 @@ export default function interview(pi: ExtensionAPI) {
 
     if (!turn) return;
     lastTurnContext = turn;
-
-    await runInterview(turn, ctx, epoch);
+    await runQuiz(turn, ctx, e);
   });
 
-  // Bump epoch on new user input to cancel pending interviews
-  pi.on("input", async (_event, ctx) => {
+  pi.on("input", async (_ev, ctx) => {
     currentContext = ctx;
-    generationEpoch++;
-    ctx.ui.setWidget("interview-status", undefined);
+    epoch++;
+    ctx.ui.setWidget("quiz-status", undefined);
     return { action: "continue" };
   });
 
   // ─── Commands ─────────────────────────────────────────────────────────
 
-  pi.registerCommand("interview", {
-    description: "Interview: ask | status | config <key> <value>",
+  pi.registerCommand("quiz", {
+    description: "Quiz: ask | status | config <key> <value>",
     handler: async (args, ctx) => {
       currentContext = ctx;
-      const [subcommand, ...rest] = args.trim().split(/\s+/);
+      const [sub, ...rest] = args.trim().split(/\s+/);
 
-      if (!subcommand || subcommand === "ask") {
-        // Manual trigger — use last turn context or build from branch
-        let turn = lastTurnContext;
+      if (!sub || sub === "ask") {
+        const turn = lastTurnContext ?? getTurnFromBranch(ctx);
         if (!turn) {
-          const branchEntries = ctx.sessionManager
-            .getBranch()
-            .filter(
-              (entry): entry is ReturnType<typeof ctx.sessionManager.getBranch>[number] & { type: "message" } =>
-                entry.type === "message"
-            );
-          turn = buildTurnContextFromBranch(branchEntries as any[]) ?? undefined;
-        }
-
-        if (!turn) {
-          ctx.ui.notify("No conversation context for interview", "warning");
+          ctx.ui.notify("No conversation context for quiz", "warning");
           return;
         }
-
-        const epoch = ++generationEpoch;
-        await runInterview(turn, ctx, epoch);
+        const e = ++epoch;
+        await runQuiz(turn, ctx, e);
         return;
       }
 
-      if (subcommand === "status") {
-        const lines = [
-          `mode: ${config.mode}`,
-          `model: ${config.model}`,
-          `maxQuestions: ${config.maxQuestions}`,
-          `maxOptions: ${config.maxOptions}`,
-          `skipOnSimpleResponse: ${config.skipOnSimpleResponse}`,
-          `autoSubmitQuickActions: ${config.autoSubmitQuickActions}`,
-          `thinkingLevel: ${config.thinkingLevel}`,
-        ];
-        if (config.customInstruction) {
-          lines.push(`customInstruction: "${config.customInstruction}"`);
-        }
-        pi.sendMessage(
-          {
-            customType: "interview-status",
-            content: `✦ pi-interview config\n${lines.join("\n")}`,
-            display: true,
-          },
-          { triggerTurn: false }
-        );
+      if (sub === "status") {
+        pi.sendMessage({
+          customType: "quiz-status",
+          content: `✦ pi-quiz\nmode: ${config.mode} · model: ${config.model}\nmaxQ: ${config.maxQuestions} · maxOpts: ${config.maxOptions}\nskip: ${config.skipOnSimpleResponse} · autoSubmit: ${config.autoSubmitSingle}`,
+          display: true,
+        }, { triggerTurn: false });
         return;
       }
 
-      if (subcommand === "config") {
+      if (sub === "config") {
         const key = rest[0];
-        const value = rest.slice(1).join(" ");
-
-        if (!key) {
-          ctx.ui.notify("Usage: /interview config <key> <value>", "info");
-          return;
-        }
+        const val = rest.slice(1).join(" ");
+        if (!key) { ctx.ui.notify("/quiz config <key> <value>", "info"); return; }
 
         switch (key) {
           case "mode":
-            if (value === "auto" || value === "manual") {
-              config.mode = value;
-              ctx.ui.notify(`interview mode: ${value}`, "info");
-            }
+            if (val === "auto" || val === "manual") { config.mode = val; ctx.ui.notify(`quiz mode: ${val}`, "info"); }
             break;
           case "model":
-            config.model = value || DEFAULT_CONFIG.model;
-            ctx.ui.notify(`interview model: ${config.model}`, "info");
+            config.model = val || DEFAULT_CONFIG.model;
+            ctx.ui.notify(`quiz model: ${config.model}`, "info");
             break;
           case "maxQuestions":
-            config.maxQuestions = Math.max(
-              1,
-              Math.min(5, parseInt(value) || DEFAULT_CONFIG.maxQuestions)
-            );
-            ctx.ui.notify(
-              `interview maxQuestions: ${config.maxQuestions}`,
-              "info"
-            );
+            config.maxQuestions = Math.max(1, Math.min(5, parseInt(val) || 3));
+            ctx.ui.notify(`quiz maxQuestions: ${config.maxQuestions}`, "info");
             break;
           case "maxOptions":
-            config.maxOptions = Math.max(
-              2,
-              Math.min(8, parseInt(value) || DEFAULT_CONFIG.maxOptions)
-            );
-            ctx.ui.notify(
-              `interview maxOptions: ${config.maxOptions}`,
-              "info"
-            );
+            config.maxOptions = Math.max(2, Math.min(8, parseInt(val) || 5));
+            ctx.ui.notify(`quiz maxOptions: ${config.maxOptions}`, "info");
             break;
           case "skip":
-            config.skipOnSimpleResponse = value !== "false";
-            ctx.ui.notify(
-              `interview skipOnSimpleResponse: ${config.skipOnSimpleResponse}`,
-              "info"
-            );
-            break;
-          case "thinking":
-            if (["off", "minimal", "low"].includes(value)) {
-              config.thinkingLevel = value as InterviewConfig["thinkingLevel"];
-              ctx.ui.notify(
-                `interview thinkingLevel: ${config.thinkingLevel}`,
-                "info"
-              );
-            }
+            config.skipOnSimpleResponse = val !== "false";
+            ctx.ui.notify(`quiz skip: ${config.skipOnSimpleResponse}`, "info");
             break;
           case "instruction":
-            config.customInstruction = value;
-            ctx.ui.notify(
-              value
-                ? `interview instruction: "${value}"`
-                : "interview instruction cleared",
-              "info"
-            );
+            config.customInstruction = val;
+            ctx.ui.notify(val ? `quiz instruction: "${val}"` : "quiz instruction cleared", "info");
             break;
           default:
-            ctx.ui.notify(`Unknown config key: ${key}`, "warning");
+            ctx.ui.notify(`Unknown: ${key}`, "warning");
         }
         return;
       }
 
-      ctx.ui.notify(
-        "Usage: /interview [ask | status | config <key> <value>]",
-        "info"
-      );
+      ctx.ui.notify("/quiz [ask | status | config <key> <value>]", "info");
     },
   });
 
-  // ─── Keyboard Shortcut ────────────────────────────────────────────────
+  // ─── Shortcut ─────────────────────────────────────────────────────────
 
-  pi.registerShortcut("ctrl+i", {
-    description: "Trigger interview",
+  pi.registerShortcut("ctrl+q", {
+    description: "Trigger quiz",
     handler: async (ctx) => {
       currentContext = ctx;
-      let turn = lastTurnContext;
+      const turn = lastTurnContext ?? getTurnFromBranch(ctx);
       if (!turn) {
-        const branchEntries = ctx.sessionManager
-          .getBranch()
-          .filter(
-            (entry): entry is ReturnType<typeof ctx.sessionManager.getBranch>[number] & { type: "message" } =>
-              entry.type === "message"
-          );
-        turn = buildTurnContextFromBranch(branchEntries as any[]) ?? undefined;
-      }
-
-      if (!turn) {
-        ctx.ui.notify("No conversation context for interview", "warning");
+        ctx.ui.notify("No conversation context", "warning");
         return;
       }
-
-      const epoch = ++generationEpoch;
-      await runInterview(turn, ctx, epoch);
+      const e = ++epoch;
+      await runQuiz(turn, ctx, e);
     },
   });
 }

@@ -1,31 +1,20 @@
 /**
- * pi-interview core types
+ * pi-quiz core types
  *
- * Structured question generation instead of passive ghost text.
- * Informed by Saya's context packet layers + Arbor's prompt builder + prompt-suggester's turn signals.
+ * Every question is multiple choice. Always.
+ * "Type something else..." is the escape hatch for freeform.
  */
 export interface TurnContext {
-    /** Unique turn identifier */
     turnId: string;
-    /** Session leaf ID this turn corresponds to */
     sourceLeafId: string;
-    /** Full text of the latest assistant response */
     assistantText: string;
-    /** Token usage from the assistant response */
     assistantUsage?: TokenUsage;
-    /** How the turn ended */
     status: "success" | "error" | "aborted";
-    /** ISO timestamp */
     occurredAt: string;
-    /** Recent user prompts (newest first) */
     recentUserPrompts: string[];
-    /** Tool calls made: "read(src/index.ts)", "bash(npm test)" */
     toolSignals: string[];
-    /** Files touched during this turn */
     touchedFiles: string[];
-    /** Questions extracted from assistant text (lines ending with ?) */
     unresolvedQuestions: string[];
-    /** Note if user aborted */
     abortContextNote?: string;
 }
 export interface TokenUsage {
@@ -34,79 +23,49 @@ export interface TokenUsage {
     totalTokens: number;
     costTotal?: number;
 }
-export type QuestionType = "single" | "multi" | "text";
-export interface InterviewOption {
-    /** Display label */
+export type QuestionType = "single" | "multi";
+export interface QuizOption {
     label: string;
-    /** Brief description (shown below label) */
     description?: string;
-    /** Whether this auto-submits when selected */
-    quickAction?: boolean;
 }
-export interface InterviewQuestion {
-    /** Unique question ID */
+export interface QuizQuestion {
     id: string;
-    /** The question text */
     text: string;
-    /** Question type: single-select, multi-select, or freeform text */
+    /** single = pick one, multi = pick several */
     type: QuestionType;
-    /** Options for single/multi type */
-    options?: InterviewOption[];
-    /** Whether this question can be skipped */
-    optional?: boolean;
-    /** Placeholder for text input */
-    placeholder?: string;
+    /** Always present — every question is multiple choice */
+    options: QuizOption[];
 }
-export interface InterviewResult {
-    /** Generated questions */
-    questions: InterviewQuestion[];
-    /** Model decided no interview needed */
+export interface QuizResult {
+    questions: QuizQuestion[];
     skipped: boolean;
-    /** Why it was skipped */
     skipReason?: string;
-    /** Token usage for the generation call */
     usage?: TokenUsage;
 }
-export interface InterviewAnswer {
+export interface QuizAnswer {
     questionId: string;
-    /** Selected option labels (for single/multi) */
+    /** Selected option labels */
     selectedOptions?: string[];
-    /** Freeform text (for text type or notes) */
+    /** Freeform text from "Type something else..." */
     text?: string;
-    /** Whether user skipped this question */
     skipped: boolean;
 }
-export interface InterviewSubmission {
-    /** All answers */
-    answers: InterviewAnswer[];
-    /** Composed natural language prompt from answers */
+export interface QuizSubmission {
+    answers: QuizAnswer[];
     composedPrompt: string;
-    /** Whether user cancelled the interview entirely */
     cancelled: boolean;
-    /** Duration in ms the user spent answering */
     durationMs: number;
 }
-export interface InterviewConfig {
-    /** Model to use for question generation (default: haiku) */
+export interface QuizConfig {
     model: string;
-    /** Max questions per interview (default: 3) */
     maxQuestions: number;
-    /** Max options per question (default: 5) */
     maxOptions: number;
-    /** Max chars for composed prompt (default: 500) */
     maxPromptChars: number;
-    /** Auto-dismiss timeout in ms (0 = no timeout, default: 30000) */
-    timeoutMs: number;
-    /** Auto-submit when single question with quick action selected */
-    autoSubmitQuickActions: boolean;
-    /** Show interview after every turn or only on explicit trigger */
+    autoSubmitSingle: boolean;
     mode: "auto" | "manual";
-    /** Skip interview when assistant response is simple affirmation */
     skipOnSimpleResponse: boolean;
-    /** Thinking level for question generation */
     thinkingLevel: "off" | "minimal" | "low";
-    /** Custom instruction appended to interview generation prompt */
     customInstruction: string;
 }
-export declare const DEFAULT_CONFIG: InterviewConfig;
+export declare const DEFAULT_CONFIG: QuizConfig;
 //# sourceMappingURL=types.d.ts.map

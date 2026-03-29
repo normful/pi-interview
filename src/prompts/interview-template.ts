@@ -1,47 +1,34 @@
 /**
- * Interview prompt template.
+ * Quiz prompt template.
  *
- * Instead of "predict the next user message" (prompt-suggester),
- * we ask: "generate structured questions to help the user decide what to do next".
- *
- * Context signals are the same rich turn data (from pi-prompt-suggester's approach),
- * but the output contract is structured JSON questions, not free text.
+ * Every question MUST be multiple choice.
+ * No "text" type questions — the UI handles freeform via "Type something else..." option.
  */
 
-import type { TurnContext, InterviewConfig } from "../core/types.js";
+import type { TurnContext, QuizConfig } from "../core/types.js";
 
 function truncate(value: string, maxChars: number): string {
   if (value.length <= maxChars) return value;
   return value.slice(0, maxChars) + "…";
 }
 
-export interface InterviewPromptContext {
-  /** Assistant's last response (truncated) */
+export interface QuizPromptContext {
   assistantText: string;
-  /** How the turn ended */
   turnStatus: TurnContext["status"];
-  /** Recent user prompts */
   recentUserPrompts: string[];
-  /** Tool calls this turn */
   toolSignals: string[];
-  /** Files modified */
   touchedFiles: string[];
-  /** Questions the assistant asked */
   unresolvedQuestions: string[];
-  /** Abort context if user interrupted */
   abortContextNote?: string;
-  /** Max questions to generate */
   maxQuestions: number;
-  /** Max options per question */
   maxOptions: number;
-  /** Custom instruction from user */
   customInstruction: string;
 }
 
-export function buildInterviewPromptContext(
+export function buildQuizPromptContext(
   turn: TurnContext,
-  config: InterviewConfig
-): InterviewPromptContext {
+  config: QuizConfig
+): QuizPromptContext {
   return {
     assistantText: truncate(turn.assistantText, 50_000),
     turnStatus: turn.status,
@@ -60,34 +47,30 @@ export function buildInterviewPromptContext(
   };
 }
 
-export function renderInterviewPrompt(ctx: InterviewPromptContext): string {
-  return `You are generating structured interview questions to help a developer decide what to instruct their coding agent to do next.
+export function renderQuizPrompt(ctx: QuizPromptContext): string {
+  return `You generate multiple-choice questions to help a developer decide what to instruct their coding agent next.
 
-Analyze the conversation context and generate 1-${ctx.maxQuestions} focused questions that:
-- Help the user articulate their next instruction clearly
-- Surface relevant options they might not have considered
-- Reduce cognitive load through concrete, actionable choices
+EVERY question MUST have concrete options. No free-text questions.
 
-Return ONLY valid JSON matching this schema:
+Return ONLY valid JSON:
 {
   "questions": [
     {
       "id": "string",
-      "text": "The question to ask",
-      "type": "single" | "multi" | "text",
+      "text": "Short question (under 80 chars)",
+      "type": "single",
       "options": [
-        { "label": "Option text", "description": "Brief context (optional)" }
-      ],
-      "optional": boolean
+        { "label": "Concrete action (under 60 chars)", "description": "optional context" }
+      ]
     }
   ],
   "skipped": false
 }
 
-If no meaningful questions can be generated (e.g., the conversation is clearly done or the next step is obvious), return:
+If the next step is obvious (e.g. agent proposed something clear), return:
 { "questions": [], "skipped": true, "skipReason": "brief reason" }
 
-─── Context ───
+── Context ──
 
 TurnStatus: ${ctx.turnStatus}
 ${ctx.abortContextNote ? `\nAbortContext:\n${ctx.abortContextNote}` : ""}
@@ -101,42 +84,25 @@ ${ctx.toolSignals.length > 0 ? ctx.toolSignals.map((s) => `- ${s}`).join("\n") :
 TouchedFiles:
 ${ctx.touchedFiles.length > 0 ? ctx.touchedFiles.map((f) => `- ${f}`).join("\n") : "(none)"}
 
-UnresolvedQuestions (from assistant):
+UnresolvedQuestions:
 ${ctx.unresolvedQuestions.length > 0 ? ctx.unresolvedQuestions.map((q) => `- ${q}`).join("\n") : "(none)"}
 
 LatestAssistantMessage:
 \`\`\`
 ${ctx.assistantText || "(empty)"}
 \`\`\`
-${ctx.customInstruction.trim() ? `\nAdditional preference:\n${ctx.customInstruction.trim()}` : ""}
+${ctx.customInstruction.trim() ? `\nPreference:\n${ctx.customInstruction.trim()}` : ""}
 
-─── Rules ───
+── Rules ──
 
-Question design:
-- Each question must have a clear, concise "text" (under 80 chars)
-- Options should be specific and actionable, not generic ("Continue" is too vague)
-- Use "single" type for direction decisions (pick one path)
-- Use "multi" type when user might want to combine actions
-- Use "text" type for freeform input (constraints, notes, specific instructions)
-- Max ${ctx.maxOptions} options per question
-- If the assistant asked questions, transform them into structured options
-- Always include one question that allows the user to specify something custom
-
-Option design:
-- Labels under 60 chars, concrete and action-oriented
-- Include brief "description" when the option needs context (under 80 chars)
-- Options should reflect the ACTUAL state of the conversation, not generic templates
-- Order options by likely relevance (most probable first)
-
-When to skip:
-- The assistant proposed a clear next step and the user likely just needs to approve
-- The conversation is wrapping up naturally
-- The last user message was a simple directive that was completed
-
-When to generate:
-- The assistant finished a task and multiple follow-ups are possible
-- Errors occurred and recovery strategies vary
-- The user aborted and might want to redirect
-- The assistant asked questions that benefit from structured options
-- A complex task completed and scope/direction decisions are needed`;
+- Generate 1-${ctx.maxQuestions} questions, each with 2-${ctx.maxOptions} options
+- type is ALWAYS "single" or "multi" — NEVER "text"
+- Options must be specific actions grounded in the conversation, not generic
+- If the assistant asked questions, turn them into options
+- If errors occurred, offer recovery strategies as options
+- If a task completed, offer concrete next steps as options
+- First option should be the most likely/natural choice
+- Use "multi" only when combining actions makes sense
+- Labels: concrete verbs ("Run the tests", "Fix the linting errors", "Add error handling to the parser")
+- Skip when: agent proposed a clear step and user just needs to affirm, or conversation is wrapping up`;
 }

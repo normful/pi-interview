@@ -1,21 +1,11 @@
 /**
- * pi-interview — Interactive next-prompt interview extension for pi.
+ * pi-quiz — Multiple-choice next-prompt quiz for pi.
  *
- * Instead of passive ghost text suggestions (pi-prompt-suggester),
- * this extension generates structured multiple-choice questions
- * after each agent turn to help the user articulate their next instruction.
+ * After each agent turn, generates structured multiple-choice questions
+ * to help the user decide what to do next. Every question has options.
  *
- * Architecture:
- * 1. Hooks into agent_end → builds TurnContext from conversation signals
- * 2. Calls a lightweight model (haiku) with interview prompt
- * 3. Shows interactive questionnaire via ctx.ui.custom()
- * 4. Composes answers into natural language → injects into editor
- *
- * Context signals (same rich data as prompt-suggester):
- * - assistantText, turnStatus, recentUserPrompts
- * - toolSignals, touchedFiles, unresolvedQuestions
- * - abortContextNote
+ * Ctrl+Q to trigger manually. /quiz for commands.
  */
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-export default function interview(pi: ExtensionAPI): void;
+export default function quiz(pi: ExtensionAPI): void;
 //# sourceMappingURL=index.d.ts.map

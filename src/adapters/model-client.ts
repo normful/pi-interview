@@ -1,21 +1,19 @@
 /**
- * Model client for pi-interview.
- *
- * Uses the pi extension context to call a model for question generation.
- * Uses getApiKeyAndHeaders (the CORRECT current pi API, not the removed getApiKey).
+ * Model client for pi-quiz.
+ * Uses getApiKeyAndHeaders (correct pi API).
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { AssistantMessage, Model } from "@mariozechner/pi-ai";
 import { completeSimple } from "@mariozechner/pi-ai";
 import type {
-  InterviewResult,
-  InterviewQuestion,
-  InterviewConfig,
+  QuizResult,
+  QuizQuestion,
+  QuizConfig,
   TokenUsage,
 } from "../core/types.js";
-import type { InterviewPromptContext } from "../prompts/interview-template.js";
-import { renderInterviewPrompt } from "../prompts/interview-template.js";
+import type { QuizPromptContext } from "../prompts/interview-template.js";
+import { renderQuizPrompt } from "../prompts/interview-template.js";
 
 type CompleteSimpleFn = typeof completeSimple;
 
@@ -23,49 +21,35 @@ interface RuntimeProvider {
   getContext(): ExtensionContext | undefined;
 }
 
-/**
- * Resolve the model to use for question generation.
- * Prefers the configured model, falls back to session default.
- */
 function resolveModel(
   ctx: ExtensionContext,
   configuredModelRef: string
 ): Model<any> | undefined {
   const allModels = ctx.modelRegistry.getAll();
 
-  // Try configured model ref (e.g., "anthropic/claude-haiku-4-5-20251001")
   if (configuredModelRef && configuredModelRef !== "session-default") {
     const [provider, id] = configuredModelRef.split("/");
     const found = allModels.find(
       (m) => m.provider === provider && m.id === id
     );
     if (found) return found;
-
-    // Try by ID alone
     const byId = allModels.find((m) => m.id === configuredModelRef);
     if (byId) return byId;
   }
 
-  // Fall back to session's current model
   return ctx.model;
 }
 
-/**
- * Parse the model response into structured InterviewResult.
- * Tolerant of markdown fences and minor formatting issues.
- */
-function parseInterviewResponse(
+function parseQuizResponse(
   text: string,
   maxQuestions: number,
   maxOptions: number
-): InterviewResult {
-  // Strip markdown code fences if present
+): QuizResult {
   let cleaned = text.trim();
   if (cleaned.startsWith("```")) {
     cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "");
   }
 
-  // Try to extract JSON object
   const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
     return { questions: [], skipped: true, skipReason: "Failed to parse response" };
@@ -86,12 +70,13 @@ function parseInterviewResponse(
       return { questions: [], skipped: true, skipReason: "No questions array" };
     }
 
-    const questions: InterviewQuestion[] = parsed.questions
+    const questions: QuizQuestion[] = parsed.questions
       .slice(0, maxQuestions)
       .map((q: any, i: number) => ({
         id: q.id || `q${i + 1}`,
         text: String(q.text || "").slice(0, 120),
-        type: ["single", "multi", "text"].includes(q.type) ? q.type : "single",
+        // Force single/multi only — no text type
+        type: q.type === "multi" ? "multi" : "single",
         options: Array.isArray(q.options)
           ? q.options.slice(0, maxOptions).map((o: any) => ({
               label: String(o.label || "").slice(0, 80),
@@ -99,23 +84,23 @@ function parseInterviewResponse(
                 ? String(o.description).slice(0, 100)
                 : undefined,
             }))
-          : undefined,
-        optional: q.optional === true,
-        placeholder: q.placeholder ? String(q.placeholder).slice(0, 100) : undefined,
+          : [],
       }))
       .filter(
-        (q: InterviewQuestion) =>
-          q.text.length > 0 &&
-          (q.type === "text" || (q.options && q.options.length > 0))
+        (q: QuizQuestion) => q.text.length > 0 && q.options.length >= 2
       );
 
-    return { questions, skipped: questions.length === 0, skipReason: questions.length === 0 ? "No valid questions generated" : undefined };
+    return {
+      questions,
+      skipped: questions.length === 0,
+      skipReason: questions.length === 0 ? "No valid questions generated" : undefined,
+    };
   } catch {
     return { questions: [], skipped: true, skipReason: "JSON parse error" };
   }
 }
 
-export class InterviewModelClient {
+export class QuizModelClient {
   private runtime: RuntimeProvider;
   private completeFn: CompleteSimpleFn;
 
@@ -124,10 +109,10 @@ export class InterviewModelClient {
     this.completeFn = completeFn;
   }
 
-  async generateInterview(
-    promptContext: InterviewPromptContext,
-    config: InterviewConfig
-  ): Promise<InterviewResult> {
+  async generateQuiz(
+    promptContext: QuizPromptContext,
+    config: QuizConfig
+  ): Promise<QuizResult> {
     const ctx = this.runtime.getContext();
     if (!ctx?.model) {
       return { questions: [], skipped: true, skipReason: "No model available" };
@@ -138,20 +123,19 @@ export class InterviewModelClient {
       return { questions: [], skipped: true, skipReason: "Configured model not found" };
     }
 
-    // Use getApiKeyAndHeaders — the CORRECT current pi API
     const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
     if (!auth.ok) {
       return { questions: [], skipped: true, skipReason: `Auth failed: ${auth.error}` };
     }
 
-    const prompt = renderInterviewPrompt(promptContext);
+    const prompt = renderQuizPrompt(promptContext);
 
     try {
       const response: AssistantMessage = await this.completeFn(
         model,
         {
           systemPrompt:
-            "You are the question generator for pi-interview. Return ONLY valid JSON matching the requested schema. No commentary, no markdown fences.",
+            "You generate multiple-choice quiz questions. Return ONLY valid JSON. Every question MUST have options. No text-only questions.",
           messages: [
             {
               role: "user",
@@ -168,7 +152,6 @@ export class InterviewModelClient {
         }
       );
 
-      // Extract text from AssistantMessage content blocks
       const text = response.content
         .filter((block): block is { type: "text"; text: string } => block.type === "text")
         .map((block) => block.text)
@@ -183,16 +166,11 @@ export class InterviewModelClient {
           }
         : undefined;
 
-      const result = parseInterviewResponse(
-        text,
-        config.maxQuestions,
-        config.maxOptions
-      );
+      const result = parseQuizResponse(text, config.maxQuestions, config.maxOptions);
       result.usage = usage;
       return result;
     } catch (error) {
-      const msg =
-        error instanceof Error ? error.message : String(error);
+      const msg = error instanceof Error ? error.message : String(error);
       return {
         questions: [],
         skipped: true,
