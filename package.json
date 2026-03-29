@@ -1,0 +1,30 @@
+{
+  "name": "pi-interview",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Interactive next-prompt interview extension for pi — structured questions instead of passive ghost text",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "pi": {
+    "extensions": [
+      "./dist/index.js"
+    ]
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-agent-core": "*",
+    "@mariozechner/pi-ai": "*",
+    "@mariozechner/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@mariozechner/pi-agent-core": "*",
+    "@mariozechner/pi-ai": "*",
+    "@mariozechner/pi-coding-agent": "*",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.3"
+  }
+}
