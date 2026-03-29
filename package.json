@@ -4,7 +4,25 @@
   "type": "module",
   "description": "Multiple-choice next-prompt quiz for pi — structured options instead of passive ghost text",
   "license": "MIT",
+  "author": "Luke Nittmann",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lnittman/pi-quiz.git"
+  },
   "main": "dist/index.js",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "pi-package",
+    "pi-coding-agent",
+    "pi-extension",
+    "prompt-quiz",
+    "multiple-choice",
+    "developer-tools",
+    "coding-agent"
+  ],
   "pi": {
     "extensions": [
       "./dist/index.js"
@@ -13,7 +31,8 @@
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "dev": "tsc -p tsconfig.build.json --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
   "peerDependencies": {
     "@mariozechner/pi-agent-core": "*",
