@@ -1,5 +1,5 @@
 {
-  "name": "pi-interview",
+  "name": "@lnittman/pi-interview",
   "version": "0.4.0",
   "type": "module",
   "description": "Multiple-choice + notes interview for pi — ask-deep style structured prompting after every agent turn",
