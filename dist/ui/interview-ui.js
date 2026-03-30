@@ -111,13 +111,15 @@ export async function showInterviewUI(ctx, questions, config) {
                     matchesKey(data, Key.tab) || matchesKey(data, Key.shift("tab"))) {
                     return; // consume silently
                 }
-                // Strip all escape sequences, control chars, and bracketed paste markers.
-                // \x1b[...letter covers arrows, CSI sequences, function keys
+                // Strip ALL terminal escape sequences before accepting printable text.
+                // Covers: CSI (arrows, F-keys), CSI-u (Kitty protocol), bracketed paste,
+                // bare Alt+key, and any other escape sequences.
                 const printable = data
-                    .replace(/\x1b\[[0-9;]*[A-Za-z~]/g, "") // CSI sequences (arrows, F-keys, etc.)
+                    .replace(/\x1b\[[0-9;:]*[A-Za-z~]/g, "") // CSI sequences + CSI-u (note : for Kitty)
                     .replace(/\x1b\[20[01]~/g, "") // bracketed paste
-                    .replace(/\x1b[^[]/g, "") // bare Alt+key sequences
+                    .replace(/\x1b[^[\x1b]/g, "") // bare Alt+key
                     .replace(/\x1b$/g, "") // trailing bare ESC
+                    .replace(/\[[0-9;:]*[A-Za-z~u]/g, "") // orphaned CSI/CSI-u after ESC stripped
                     .replace(/[\x00-\x1f\x7f]/g, ""); // control chars + DEL
                 if (printable.length > 0) {
                     noteText += printable;
