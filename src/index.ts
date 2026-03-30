@@ -28,6 +28,10 @@ import {
 import type { TurnContext, QuizConfig } from "./core/types.js";
 import { DEFAULT_CONFIG } from "./core/types.js";
 import { getDemoTurn, listDemoScenarios } from "./core/demo.js";
+import {
+  buildAgentContext,
+  type AgentContext,
+} from "./core/agent-context.js";
 
 const CUSTOM_TYPE = "pi-interview-state";
 
@@ -39,6 +43,7 @@ export default function interview(pi: ExtensionAPI) {
   let epoch = 0;
   let state: QuizSessionState = emptyState();
   let projectSnapshot: ProjectSnapshot | undefined;
+  let agentCtx: AgentContext | null = null;
 
   const modelClient = new QuizModelClient(
     { getContext: () => ctx },
@@ -68,16 +73,25 @@ export default function interview(pi: ExtensionAPI) {
     ctx.ui.setStatus("iv-usage", status);
   }
 
-  // ─── Project Context ──────────────────────────────────────────────────
+  // ─── Context Enrichment ────────────────────────────────────────────────
 
-  async function ensureProjectSnapshot() {
+  async function ensureContexts() {
+    const promises: Promise<void>[] = [];
     if (!projectSnapshot && ctx) {
-      try {
-        projectSnapshot = await buildProjectSnapshot(ctx.cwd);
-      } catch {
-        // Non-critical — interview works without it
-      }
+      promises.push(
+        buildProjectSnapshot(ctx.cwd)
+          .then((s) => { projectSnapshot = s; })
+          .catch(() => {})
+      );
     }
+    if (!agentCtx) {
+      promises.push(
+        buildAgentContext()
+          .then((a) => { agentCtx = a; })
+          .catch(() => {})
+      );
+    }
+    if (promises.length > 0) await Promise.all(promises);
   }
 
   // ─── Core Flow ────────────────────────────────────────────────────────
@@ -111,11 +125,11 @@ export default function interview(pi: ExtensionAPI) {
     ivActive = true;
 
     try {
-      await ensureProjectSnapshot();
-      const promptContext = buildQuizPromptContext(turn, config, projectSnapshot);
+      await ensureContexts();
+      const promptContext = buildQuizPromptContext(turn, config, projectSnapshot, agentCtx);
 
       context.ui.setWidget("iv-loading", [
-        `  ${context.ui.theme.fg("dim", "✦ iv...")}`,
+        `  ${context.ui.theme.fg("dim", "✦ interview...")}`,
       ], { placement: "belowEditor" });
 
       const result = await modelClient.generateQuiz(promptContext, config);
@@ -187,7 +201,7 @@ export default function interview(pi: ExtensionAPI) {
   pi.on("session_start", async (_ev, c) => {
     ctx = c;
     epoch++;
-    projectSnapshot = undefined;
+    projectSnapshot = undefined; agentCtx = null;
     restoreState(c.sessionManager.getEntries() as any[]);
     refreshUsageWidget();
   });
@@ -196,7 +210,7 @@ export default function interview(pi: ExtensionAPI) {
     ctx = c;
     epoch++;
     ivActive = false;
-    projectSnapshot = undefined;
+    projectSnapshot = undefined; agentCtx = null;
     restoreState(c.sessionManager.getEntries() as any[]);
     refreshUsageWidget();
   });

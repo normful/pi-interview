@@ -5,12 +5,13 @@
  * No "text" type questions — the UI handles freeform via "Type something else..." option.
  */
 import { formatProjectContext } from "../core/project-context.js";
+import { formatAgentContext } from "../core/agent-context.js";
 function truncate(value, maxChars) {
     if (value.length <= maxChars)
         return value;
     return value.slice(0, maxChars) + "…";
 }
-export function buildQuizPromptContext(turn, config, project) {
+export function buildQuizPromptContext(turn, config, project, agent) {
     return {
         assistantText: truncate(turn.assistantText, 50_000),
         turnStatus: turn.status,
@@ -24,6 +25,7 @@ export function buildQuizPromptContext(turn, config, project) {
             ? truncate(turn.abortContextNote, 300)
             : undefined,
         projectContext: project ? formatProjectContext(project) : undefined,
+        agentContext: agent ? formatAgentContext(agent) : undefined,
         maxQuestions: config.maxQuestions,
         maxOptions: config.maxOptions,
         customInstruction: config.customInstruction,
@@ -53,7 +55,7 @@ If the next step is obvious (e.g. agent proposed something clear), return:
 { "questions": [], "skipped": true, "skipReason": "brief reason" }
 
 ── Context ──
-${ctx.projectContext ? `\nProject:\n${ctx.projectContext}\n` : ""}
+${ctx.projectContext ? `\nProject:\n${ctx.projectContext}\n` : ""}${ctx.agentContext ? `\nAgent Ecosystem:\n${ctx.agentContext}\n` : ""}
 TurnStatus: ${ctx.turnStatus}
 ${ctx.abortContextNote ? `\nAbortContext:\n${ctx.abortContextNote}` : ""}
 
