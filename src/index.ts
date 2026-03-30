@@ -35,6 +35,7 @@ import {
   extractSessionDepth,
   type AgentContext,
 } from "./core/agent-context.js";
+import { extractTrajectory } from "./core/trajectory.js";
 
 const CUSTOM_TYPE = "pi-interview-state";
 
@@ -158,11 +159,17 @@ export default function interview(pi: ExtensionAPI) {
 
     try {
       await ensureContexts();
-      // Inject session depth from live session
-      if (agentCtx && context.sessionManager) {
-        agentCtx.sessionDepth = extractSessionDepth(
-          context.sessionManager.getEntries() as any[]
-        );
+      // Inject live session context
+      if (context.sessionManager) {
+        const entries = context.sessionManager.getEntries() as any[];
+        if (agentCtx) {
+          agentCtx.sessionDepth = extractSessionDepth(entries);
+        }
+        // Extract trajectory from full session branch
+        const branch = context.sessionManager.getBranch() as any[];
+        const { trajectory, sessionFiles } = extractTrajectory(branch);
+        turn.trajectory = trajectory;
+        turn.sessionFiles = sessionFiles;
       }
       const promptContext = buildQuizPromptContext(turn, config, projectSnapshot, agentCtx);
 

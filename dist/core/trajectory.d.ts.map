@@ -1,0 +1,1 @@
+{"version":3,"file":"trajectory.d.ts","sourceRoot":"","sources":["../../src/core/trajectory.ts"],"names":[],"mappings":"AAAA;;;;;;GAMG;AAEH;;;GAGG;AACH,wBAAgB,iBAAiB,CAC/B,aAAa,EAAE;IAAE,IAAI,EAAE,MAAM,CAAC;IAAC,OAAO,CAAC,EAAE,GAAG,CAAA;CAAE,EAAE,GAC/C;IAAE,UAAU,EAAE,MAAM,EAAE,CAAC;IAAC,YAAY,EAAE,MAAM,EAAE,CAAA;CAAE,CA+ClD"}

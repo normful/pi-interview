@@ -29,6 +29,8 @@ export function buildQuizPromptContext(turn, config, project, agent) {
             : undefined,
         projectContext: project ? formatProjectContext(project) : undefined,
         agentContext: agent ? formatAgentContext(agent) : undefined,
+        trajectory: turn.trajectory,
+        sessionFiles: turn.sessionFiles,
         maxQuestions: config.maxQuestions,
         maxOptions: config.maxOptions,
         customInstruction: config.customInstruction,
@@ -59,6 +61,11 @@ Skip: { "questions": [], "skipped": true, "skipReason": "..." }
 
 \u2500\u2500 Situation \u2500\u2500
 ${ctx.projectContext ? `\nProject:\n${ctx.projectContext}\n` : ""}${ctx.agentContext ? `\nEcosystem:\n${ctx.agentContext}\n` : ""}
+${ctx.trajectory && ctx.trajectory.length > 0 ? `SessionTrajectory (what happened earlier):
+${ctx.trajectory.map((t) => `- ${t}`).join("\n")}
+` : ""}${ctx.sessionFiles && ctx.sessionFiles.length > 0 ? `AllSessionFiles (touched across all turns):
+${ctx.sessionFiles.map((f) => `- ${f}`).join("\n")}
+` : ""}
 TurnStatus: ${ctx.turnStatus}
 ${ctx.abortContextNote ? `AbortContext: ${ctx.abortContextNote}\n` : ""}
 RecentUserMessages:

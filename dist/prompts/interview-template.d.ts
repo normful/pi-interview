@@ -20,6 +20,10 @@ export interface QuizPromptContext {
     abortContextNote?: string;
     projectContext?: string;
     agentContext?: string;
+    /** Condensed session trajectory — what happened in prior turns */
+    trajectory?: string[];
+    /** All files touched across the full session */
+    sessionFiles?: string[];
     maxQuestions: number;
     maxOptions: number;
     customInstruction: string;

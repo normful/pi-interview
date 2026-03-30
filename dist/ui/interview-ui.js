@@ -105,9 +105,11 @@ export async function showInterviewUI(ctx, questions, config) {
                     return;
                 }
                 // Accept printable text including paste (multi-char) and Unicode.
-                // Filter out control chars (0x00-0x1f) except we already handled
-                // Enter/Esc/Backspace above. Tab in note mode inserts nothing.
-                const printable = data.replace(/[\x00-\x1f]/g, "");
+                // Strip control chars and bracketed paste markers ([200~ / [201~).
+                const printable = data
+                    .replace(/\x1b\[20[01]~/g, "") // bracketed paste open/close
+                    .replace(/\[20[01]~/g, "") // leftover after partial ESC strip
+                    .replace(/[\x00-\x1f\x7f]/g, ""); // control chars + DEL
                 if (printable.length > 0) {
                     noteText += printable;
                     refresh();

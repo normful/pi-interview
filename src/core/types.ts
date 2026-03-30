@@ -19,6 +19,10 @@ export interface TurnContext {
   touchedFiles: string[];
   unresolvedQuestions: string[];
   abortContextNote?: string;
+  /** All unique files touched across the full session (not just this turn) */
+  sessionFiles?: string[];
+  /** Condensed session trajectory: what happened in prior turns */
+  trajectory?: string[];
 }
 
 export interface TokenUsage {

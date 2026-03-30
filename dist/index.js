@@ -16,6 +16,7 @@ import { buildProjectSnapshot, } from "./core/project-context.js";
 import { DEFAULT_CONFIG } from "./core/types.js";
 import { getDemoTurn, listDemoScenarios } from "./core/demo.js";
 import { buildAgentContext, extractSessionDepth, } from "./core/agent-context.js";
+import { extractTrajectory } from "./core/trajectory.js";
 const CUSTOM_TYPE = "pi-interview-state";
 export default function interview(pi) {
     // Register custom renderer for interview answers
@@ -111,9 +112,17 @@ export default function interview(pi) {
         ivActive = true;
         try {
             await ensureContexts();
-            // Inject session depth from live session
-            if (agentCtx && context.sessionManager) {
-                agentCtx.sessionDepth = extractSessionDepth(context.sessionManager.getEntries());
+            // Inject live session context
+            if (context.sessionManager) {
+                const entries = context.sessionManager.getEntries();
+                if (agentCtx) {
+                    agentCtx.sessionDepth = extractSessionDepth(entries);
+                }
+                // Extract trajectory from full session branch
+                const branch = context.sessionManager.getBranch();
+                const { trajectory, sessionFiles } = extractTrajectory(branch);
+                turn.trajectory = trajectory;
+                turn.sessionFiles = sessionFiles;
             }
             const promptContext = buildQuizPromptContext(turn, config, projectSnapshot, agentCtx);
             context.ui.setWidget("interview-loading", [
