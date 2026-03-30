@@ -142,7 +142,7 @@ export async function showInterviewUI(
       }
 
       // ── 'n' key: toggle notes ──
-      if (data === "n") {
+      if (data === "i") {
         noteMode = true;
         noteText = notes.get(q().id) || "";
         refresh();
@@ -301,7 +301,7 @@ export async function showInterviewUI(
       // Help bar
       blank();
       if (!noteMode) {
-        const hints: string[] = ["up/dn", "Space toggle", "Enter confirm", "n note"];
+        const hints: string[] = ["up/dn", "Space toggle", "Enter confirm", "i note"];
         if (questions.length > 1) hints.push("Tab next");
         hints.push("Esc dismiss");
         add(theme.fg("dim", `  ${hints.join(" . ")}`));
