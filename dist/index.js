@@ -8,13 +8,13 @@ import { completeSimple } from "@mariozechner/pi-ai";
 import { buildTurnContext, buildTurnContextFromBranch } from "./core/signals.js";
 import { buildQuizPromptContext } from "./prompts/interview-template.js";
 import { QuizModelClient } from "./adapters/model-client.js";
-import { showQuizUI } from "./ui/interview-ui.js";
+import { showInterviewUI } from "./ui/interview-ui.js";
 import { emptyState, recordQuizCall, shouldBackOff, formatUsageStatus, } from "./core/state.js";
 import { buildProjectSnapshot, } from "./core/project-context.js";
 import { DEFAULT_CONFIG } from "./core/types.js";
 import { getDemoTurn, listDemoScenarios } from "./core/demo.js";
 const CUSTOM_TYPE = "pi-quiz-state";
-export default function quiz(pi) {
+export default function interview(pi) {
     let config = { ...DEFAULT_CONFIG };
     let ctx;
     let lastTurn;
@@ -105,7 +105,7 @@ export default function quiz(pi) {
                 const cost = result.usage.costTotal ? ` $${result.usage.costTotal.toFixed(4)}` : "";
                 context.ui.setStatus("quiz", `✦ ${result.usage.totalTokens} tok${cost}`);
             }
-            const submission = await showQuizUI(context, result.questions, config);
+            const submission = await showInterviewUI(context, result.questions, config);
             context.ui.setStatus("quiz", undefined);
             if (submission.cancelled) {
                 state = recordQuizCall(state, result.usage, "cancelled", turn.turnId);
@@ -188,8 +188,8 @@ export default function quiz(pi) {
         return { action: "continue" };
     });
     // ─── Commands ─────────────────────────────────────────────────────────
-    pi.registerCommand("quiz", {
-        description: "quiz: ask | demo [scenario] | status | reset | config <key> <value>",
+    pi.registerCommand("interview", {
+        description: "interview: ask | demo [scenario] | status | reset | config <key> <value>",
         handler: async (args, c) => {
             ctx = c;
             const [sub, ...rest] = args.trim().split(/\s+/);
@@ -284,8 +284,8 @@ export default function quiz(pi) {
         },
     });
     // ─── Shortcut ─────────────────────────────────────────────────────────
-    pi.registerShortcut("ctrl+q", {
-        description: "Trigger quiz",
+    pi.registerShortcut("ctrl+i", {
+        description: "Trigger interview",
         handler: async (c) => {
             ctx = c;
             const turn = lastTurn ?? getTurnFromBranch(c);

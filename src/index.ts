@@ -13,7 +13,7 @@ import { completeSimple } from "@mariozechner/pi-ai";
 import { buildTurnContext, buildTurnContextFromBranch } from "./core/signals.js";
 import { buildQuizPromptContext } from "./prompts/interview-template.js";
 import { QuizModelClient } from "./adapters/model-client.js";
-import { showQuizUI } from "./ui/interview-ui.js";
+import { showInterviewUI } from "./ui/interview-ui.js";
 import {
   emptyState,
   recordQuizCall,
@@ -31,7 +31,7 @@ import { getDemoTurn, listDemoScenarios } from "./core/demo.js";
 
 const CUSTOM_TYPE = "pi-quiz-state";
 
-export default function quiz(pi: ExtensionAPI) {
+export default function interview(pi: ExtensionAPI) {
   let config: QuizConfig = { ...DEFAULT_CONFIG };
   let ctx: ExtensionContext | undefined;
   let lastTurn: TurnContext | undefined;
@@ -148,7 +148,7 @@ export default function quiz(pi: ExtensionAPI) {
         context.ui.setStatus("quiz", `✦ ${result.usage.totalTokens} tok${cost}`);
       }
 
-      const submission = await showQuizUI(context, result.questions, config);
+      const submission = await showInterviewUI(context, result.questions, config);
 
       context.ui.setStatus("quiz", undefined);
 
@@ -243,8 +243,8 @@ export default function quiz(pi: ExtensionAPI) {
 
   // ─── Commands ─────────────────────────────────────────────────────────
 
-  pi.registerCommand("quiz", {
-    description: "quiz: ask | demo [scenario] | status | reset | config <key> <value>",
+  pi.registerCommand("interview", {
+    description: "interview: ask | demo [scenario] | status | reset | config <key> <value>",
     handler: async (args, c) => {
       ctx = c;
       const [sub, ...rest] = args.trim().split(/\s+/);
@@ -342,8 +342,8 @@ export default function quiz(pi: ExtensionAPI) {
 
   // ─── Shortcut ─────────────────────────────────────────────────────────
 
-  pi.registerShortcut("ctrl+q", {
-    description: "Trigger quiz",
+  pi.registerShortcut("ctrl+i", {
+    description: "Trigger interview",
     handler: async (c) => {
       ctx = c;
       const turn = lastTurn ?? getTurnFromBranch(c);

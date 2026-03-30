@@ -5,5 +5,5 @@
  * Ctrl+Q to trigger. /quiz for commands. Haiku by default.
  */
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-export default function quiz(pi: ExtensionAPI): void;
+export default function interview(pi: ExtensionAPI): void;
 //# sourceMappingURL=index.d.ts.map

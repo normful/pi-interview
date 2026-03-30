@@ -1,23 +1,32 @@
 /**
- * Quiz UI — always multiple choice.
+ * Interview UI — based on the proven ask-user extension patterns.
  *
- * Every question shows numbered options + "Type something else..." at the bottom.
- * Uses pi-tui's matchesKey/Key for cross-terminal key handling.
+ * - ALL questions rendered as multi-select (checkboxes, not radio)
+ * - Space toggles selection with visual ☑/☐ feedback
+ * - Enter confirms and advances
+ * - 'n' key opens notes input for any question
+ * - Tab navigates between questions
+ * - matchesKey/Key for cross-terminal compat
  */
-import { Key, matchesKey } from "@mariozechner/pi-tui";
+import { Key, matchesKey, wrapTextWithAnsi, } from "@mariozechner/pi-tui";
 import { buildSubmission } from "../prompts/compose-template.js";
-export async function showQuizUI(ctx, questions, config) {
+export async function showInterviewUI(ctx, questions, config) {
     const startTime = Date.now();
     if (!ctx.hasUI || questions.length === 0) {
         return buildSubmission(questions, [], config.maxPromptChars, startTime, true);
     }
     return ctx.ui.custom((tui, theme, _kb, done) => {
         let currentQ = 0;
-        let optionIdx = 0;
-        let textMode = false;
-        let textInput = "";
-        const answers = new Map();
+        let optionCursor = 0;
+        let noteMode = false;
+        let noteText = "";
         let cachedLines;
+        // Multi-select state: track toggled options per question
+        const selections = new Map();
+        const notes = new Map();
+        for (const q of questions) {
+            selections.set(q.id, new Set());
+        }
         function refresh() {
             cachedLines = undefined;
             tui.requestRender();
@@ -25,95 +34,79 @@ export async function showQuizUI(ctx, questions, config) {
         function q() {
             return questions[currentQ];
         }
-        function rowCount() {
-            return q().options.length + 1; // options + "Type something else..."
-        }
         function finish(cancelled) {
             const allAnswers = questions.map((question) => {
-                return answers.get(question.id) ?? { questionId: question.id, skipped: true };
+                const sel = selections.get(question.id);
+                const selectedLabels = sel && sel.size > 0
+                    ? [...sel].sort((a, b) => a - b).map((i) => question.options[i]?.label).filter(Boolean)
+                    : undefined;
+                const note = notes.get(question.id);
+                return {
+                    questionId: question.id,
+                    selectedOptions: selectedLabels,
+                    text: note,
+                    skipped: !selectedLabels?.length && !note,
+                };
             });
             done(buildSubmission(questions, allAnswers, config.maxPromptChars, startTime, cancelled));
         }
-        function selectCurrentOption() {
-            const question = q();
-            const opt = question.options[optionIdx];
-            if (!opt)
+        function advance() {
+            if (questions.length === 1) {
+                finish(false);
                 return;
-            if (question.type === "single") {
-                answers.set(question.id, {
-                    questionId: question.id,
-                    selectedOptions: [opt.label],
-                    skipped: false,
-                });
-                if (questions.length === 1 && config.autoSubmitSingle) {
-                    finish(false);
+            }
+            // Move to next unanswered, or finish
+            for (let i = currentQ + 1; i < questions.length; i++) {
+                const sel = selections.get(questions[i].id);
+                if (!sel || sel.size === 0) {
+                    currentQ = i;
+                    optionCursor = 0;
+                    refresh();
                     return;
                 }
-                advanceQuestion();
             }
-            else {
-                const existing = answers.get(question.id);
-                const selected = existing?.selectedOptions ? [...existing.selectedOptions] : [];
-                const idx = selected.indexOf(opt.label);
-                if (idx >= 0)
-                    selected.splice(idx, 1);
-                else
-                    selected.push(opt.label);
-                answers.set(question.id, {
-                    questionId: question.id,
-                    selectedOptions: selected,
-                    skipped: selected.length === 0,
-                });
-                refresh();
+            // Check earlier unanswered
+            for (let i = 0; i < currentQ; i++) {
+                const sel = selections.get(questions[i].id);
+                if (!sel || sel.size === 0) {
+                    currentQ = i;
+                    optionCursor = 0;
+                    refresh();
+                    return;
+                }
             }
-        }
-        function advanceQuestion() {
-            if (currentQ < questions.length - 1) {
-                currentQ++;
-                optionIdx = 0;
-                textMode = false;
-                textInput = "";
-            }
-            else {
-                finish(false);
-            }
-            refresh();
+            // All have selections
+            finish(false);
         }
         function handleInput(data) {
-            // ── Text input mode ──
-            if (textMode) {
+            // ── Note mode ──
+            if (noteMode) {
                 if (matchesKey(data, Key.escape)) {
-                    textMode = false;
+                    // Save and exit note mode
+                    const trimmed = noteText.trim();
+                    if (trimmed)
+                        notes.set(q().id, trimmed);
+                    noteMode = false;
                     refresh();
                     return;
                 }
                 if (matchesKey(data, Key.enter)) {
-                    if (textInput.trim()) {
-                        answers.set(q().id, {
-                            questionId: q().id,
-                            text: textInput.trim(),
-                            skipped: false,
-                        });
-                    }
-                    textMode = false;
-                    textInput = "";
-                    if (questions.length === 1 && config.autoSubmitSingle) {
-                        finish(false);
-                    }
-                    else {
-                        advanceQuestion();
-                    }
+                    const trimmed = noteText.trim();
+                    if (trimmed)
+                        notes.set(q().id, trimmed);
+                    noteMode = false;
+                    refresh();
                     return;
                 }
                 if (matchesKey(data, Key.backspace)) {
-                    textInput = textInput.slice(0, -1);
+                    noteText = noteText.slice(0, -1);
                     refresh();
                     return;
                 }
-                // Accept printable characters
                 if (data.length === 1 && data.charCodeAt(0) >= 32) {
-                    textInput += data;
+                    noteText += data;
                     refresh();
+                    return;
                 }
                 return;
             }
@@ -122,58 +115,74 @@ export async function showQuizUI(ctx, questions, config) {
                 finish(true);
                 return;
             }
+            // ── 'n' key: toggle notes ──
+            if (data === "n") {
+                noteMode = true;
+                noteText = notes.get(q().id) || "";
+                refresh();
+                return;
+            }
             // ── Arrow navigation ──
             if (matchesKey(data, Key.up)) {
-                optionIdx = Math.max(0, optionIdx - 1);
+                optionCursor = Math.max(0, optionCursor - 1);
                 refresh();
                 return;
             }
             if (matchesKey(data, Key.down)) {
-                optionIdx = Math.min(rowCount() - 1, optionIdx + 1);
+                optionCursor = Math.min(q().options.length - 1, optionCursor + 1);
                 refresh();
                 return;
             }
-            // ── Tab / arrow right: next question ──
-            if (matchesKey(data, Key.tab) || matchesKey(data, Key.right)) {
+            // ── Tab: next question ──
+            if (matchesKey(data, Key.tab)) {
                 if (questions.length > 1) {
                     currentQ = (currentQ + 1) % questions.length;
-                    optionIdx = 0;
+                    optionCursor = 0;
                     refresh();
                 }
                 return;
             }
-            // ── Shift-tab / arrow left: prev question ──
-            if (matchesKey(data, Key.shift("tab")) || matchesKey(data, Key.left)) {
+            if (matchesKey(data, Key.shift("tab"))) {
                 if (questions.length > 1) {
                     currentQ = (currentQ - 1 + questions.length) % questions.length;
-                    optionIdx = 0;
+                    optionCursor = 0;
                     refresh();
                 }
                 return;
             }
-            // ── Enter: select option or enter text mode ──
+            // ── Space: toggle checkbox ──
+            if (matchesKey(data, Key.space)) {
+                const sel = selections.get(q().id);
+                if (sel.has(optionCursor)) {
+                    sel.delete(optionCursor);
+                }
+                else {
+                    sel.add(optionCursor);
+                }
+                refresh();
+                return;
+            }
+            // ── Enter: confirm selection and advance ──
             if (matchesKey(data, Key.enter)) {
-                if (optionIdx === q().options.length) {
-                    // "Type something else..."
-                    textMode = true;
-                    textInput = "";
+                const sel = selections.get(q().id);
+                // If nothing selected, select current cursor item first
+                if (sel.size === 0) {
+                    sel.add(optionCursor);
                     refresh();
-                    return;
                 }
-                selectCurrentOption();
+                advance();
                 return;
             }
-            // ── Space: also selects for single-choice ──
-            if (matchesKey(data, Key.space) && q().type === "single" && optionIdx < q().options.length) {
-                selectCurrentOption();
-                return;
-            }
-            // ── Number keys: quick-select ──
+            // ── Number keys: toggle specific option ──
             if (data.length === 1 && data >= "1" && data <= "9") {
-                const num = parseInt(data, 10);
-                if (num >= 1 && num <= q().options.length) {
-                    optionIdx = num - 1;
-                    selectCurrentOption();
+                const num = parseInt(data, 10) - 1;
+                if (num < q().options.length) {
+                    const sel = selections.get(q().id);
+                    if (sel.has(num))
+                        sel.delete(num);
+                    else
+                        sel.add(num);
+                    refresh();
                     return;
                 }
             }
@@ -184,66 +193,84 @@ export async function showQuizUI(ctx, questions, config) {
             const lines = [];
             const w = Math.max(20, width);
             const question = q();
-            const selected = answers.get(question.id)?.selectedOptions ?? [];
+            const sel = selections.get(question.id);
+            // Top border
             lines.push(theme.fg("accent", "─".repeat(w)));
-            // Progress dots for multi-question
+            // Progress dots
             if (questions.length > 1) {
-                const dots = questions.map((_, i) => {
-                    const answered = answers.has(questions[i].id);
+                const dots = questions.map((qn, i) => {
+                    const hasSelection = (selections.get(qn.id)?.size ?? 0) > 0;
+                    const hasNote = notes.has(qn.id);
                     const active = i === currentQ;
-                    const dot = answered ? "●" : "○";
-                    return active ? theme.fg("accent", dot) : theme.fg("dim", dot);
+                    const dot = hasSelection ? "●" : "○";
+                    const noteIcon = hasNote ? "📝" : "";
+                    const styled = active ? theme.fg("accent", dot) : theme.fg(hasSelection ? "success" : "dim", dot);
+                    return styled + noteIcon;
                 }).join(" ");
                 lines.push(` ${theme.fg("accent", "✦")} ${dots}`);
             }
             else {
                 lines.push(` ${theme.fg("accent", "✦")}`);
             }
-            lines.push(` ${theme.fg("text", theme.bold(question.text))}`);
-            lines.push("");
-            if (textMode) {
-                const display = textInput || theme.fg("dim", "Type your instruction...");
-                lines.push(`  ${theme.fg("accent", "▸")} ${display}${theme.fg("accent", "█")}`);
-                lines.push("");
-                lines.push(theme.fg("dim", "  Enter submit · Esc back"));
+            // Question text
+            const qLines = wrapTextWithAnsi(theme.bold(question.text), w - 2);
+            for (const ql of qLines) {
+                lines.push(` ${ql}`);
             }
-            else {
-                const opts = question.options;
-                for (let i = 0; i < opts.length; i++) {
-                    const opt = opts[i];
-                    const active = i === optionIdx;
-                    const checked = selected.includes(opt.label);
-                    const pointer = active ? theme.fg("accent", "▸") : " ";
-                    const check = question.type === "multi"
-                        ? (checked ? theme.fg("success", "■") : theme.fg("dim", "□"))
-                        : "";
-                    const num = theme.fg("dim", `${i + 1}`);
-                    const label = active
-                        ? theme.fg("accent", opt.label)
-                        : theme.fg("text", opt.label);
-                    lines.push(` ${pointer} ${check}${check ? " " : ""}${num} ${label}`);
-                    if (opt.description) {
-                        lines.push(`     ${theme.fg("dim", opt.description)}`);
+            lines.push("");
+            // Options with checkboxes
+            const opts = question.options;
+            for (let i = 0; i < opts.length; i++) {
+                const opt = opts[i];
+                const isCursor = i === optionCursor;
+                const isChecked = sel.has(i);
+                const pointer = isCursor ? theme.fg("accent", " ❯ ") : "   ";
+                const box = isChecked ? theme.fg("success", "☑") : theme.fg("muted", "☐");
+                const num = theme.fg("dim", `${i + 1}`);
+                const color = isCursor ? "accent" : isChecked ? "success" : "text";
+                const optLines = wrapTextWithAnsi(opt.label, w - 10);
+                for (let li = 0; li < optLines.length; li++) {
+                    if (li === 0) {
+                        lines.push(`${pointer}${box} ${num} ${theme.fg(color, optLines[li])}`);
+                    }
+                    else {
+                        lines.push(`        ${theme.fg(color, optLines[li])}`);
                     }
                 }
-                // "Type something else..." option
-                const typeActive = optionIdx === opts.length;
-                const pointer = typeActive ? theme.fg("accent", "▸") : " ";
-                const label = typeActive
-                    ? theme.fg("accent", "Type something else...")
-                    : theme.fg("muted", "Type something else...");
-                lines.push(` ${pointer}   ${label}`);
+                if (opt.description) {
+                    const descLines = wrapTextWithAnsi(opt.description, w - 10);
+                    for (const dl of descLines) {
+                        lines.push(`        ${theme.fg("dim", dl)}`);
+                    }
+                }
+            }
+            // Selection count
+            if (sel.size > 0) {
                 lines.push("");
-                const hints = ["↑↓ navigate"];
-                if (question.type === "single")
-                    hints.push("Enter/#");
-                if (question.type === "multi")
-                    hints.push("Enter toggle");
+                const selectedLabels = [...sel].sort((a, b) => a - b).map((i) => opts[i]?.label).filter(Boolean);
+                lines.push(`  ${theme.fg("success", `${sel.size} selected`)} ${theme.fg("dim", selectedLabels.join(", "))}`);
+            }
+            // Notes section
+            lines.push("");
+            const existingNote = notes.get(question.id);
+            if (noteMode) {
+                const display = noteText || theme.fg("dim", "add a note...");
+                lines.push(`  ${theme.fg("accent", "📝")} ${display}${theme.fg("accent", "█")}`);
+                lines.push(theme.fg("dim", "  Enter/Esc save"));
+            }
+            else if (existingNote) {
+                lines.push(`  ${theme.fg("muted", "📝")} ${theme.fg("dim", existingNote)}`);
+            }
+            // Help bar
+            lines.push("");
+            if (!noteMode) {
+                const hints = ["↑↓ navigate", "Space toggle", "Enter confirm", "n note"];
                 if (questions.length > 1)
                     hints.push("Tab next");
                 hints.push("Esc dismiss");
-                lines.push(theme.fg("dim", ` ${hints.join("  ·  ")}`));
+                lines.push(theme.fg("dim", `  ${hints.join(" · ")}`));
             }
+            // Bottom border
             lines.push(theme.fg("accent", "─".repeat(w)));
             cachedLines = lines;
             return lines;

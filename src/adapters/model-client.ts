@@ -1,5 +1,5 @@
 /**
- * Model client for pi-quiz.
+ * Model client for pi-interview.
  * Uses getApiKeyAndHeaders (correct pi API).
  */
 
@@ -75,8 +75,8 @@ function parseQuizResponse(
       .map((q: any, i: number) => ({
         id: q.id || `q${i + 1}`,
         text: String(q.text || "").slice(0, 120),
-        // Force single/multi only — no text type
-        type: q.type === "multi" ? "multi" : "single",
+        // Always multi — user picks one or more with checkboxes
+        type: "multi" as const,
         options: Array.isArray(q.options)
           ? q.options.slice(0, maxOptions).map((o: any) => ({
               label: String(o.label || "").slice(0, 80),
@@ -135,7 +135,7 @@ export class QuizModelClient {
         model,
         {
           systemPrompt:
-            "You generate multiple-choice quiz questions for a coding agent session. Return ONLY valid JSON. Every question MUST have options grounded in specific files, errors, and tool outputs from the context — never generic options. No text-only questions.",
+            "You generate multiple-choice interview questions for a coding agent session. Return ONLY valid JSON. Every question MUST have options grounded in specific files, errors, and tool outputs from the context — never generic options. No text-only questions.",
           messages: [
             {
               role: "user",

@@ -1,5 +1,5 @@
 /**
- * Model client for pi-quiz.
+ * Model client for pi-interview.
  * Uses getApiKeyAndHeaders (correct pi API).
  */
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";

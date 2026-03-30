@@ -40,7 +40,7 @@ Return ONLY valid JSON:
     {
       "id": "string",
       "text": "Short question (under 80 chars)",
-      "type": "single",
+      "type": "multi",
       "options": [
         { "label": "Concrete action (under 60 chars)", "description": "optional context" }
       ]
@@ -88,10 +88,10 @@ GROUNDING (critical):
 
 STRUCTURE:
 - Generate 1-${ctx.maxQuestions} questions, each with 2-${ctx.maxOptions} options
-- type is ALWAYS "single" or "multi" — NEVER "text"
+- type is ALWAYS "multi" — user can check one or several options
 - First option = most natural/likely next step
-- Use "multi" only when combining makes sense (e.g. "fix lint AND run tests")
 - description field: use for file paths, error counts, or other concrete context
+- User can also add freeform notes via the UI — don't generate text-input questions
 
 SKIP when:
 - Agent proposed a clear next step and user just needs to affirm

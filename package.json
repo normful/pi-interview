@@ -1,13 +1,13 @@
 {
-  "name": "pi-quiz",
-  "version": "0.3.0",
+  "name": "pi-interview",
+  "version": "0.4.0",
   "type": "module",
-  "description": "Multiple-choice next-prompt quiz for pi — structured options instead of passive ghost text",
+  "description": "Multiple-choice + notes interview for pi — ask-deep style structured prompting after every agent turn",
   "license": "MIT",
   "author": "Luke Nittmann",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/lnittman/pi-quiz.git"
+    "url": "git+https://github.com/lnittman/pi-interview.git"
   },
   "main": "dist/index.js",
   "files": [
@@ -18,8 +18,9 @@
     "pi-package",
     "pi-coding-agent",
     "pi-extension",
-    "prompt-quiz",
+    "interview",
     "multiple-choice",
+    "ask-deep",
     "developer-tools",
     "coding-agent"
   ],
