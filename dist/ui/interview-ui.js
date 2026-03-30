@@ -111,10 +111,16 @@ export async function showInterviewUI(ctx, questions, config) {
                 }
                 return;
             }
-            // ── Dismiss: q or Escape or Circle(○) ──
-            if (data === "q" || matchesKey(data, Key.escape)) {
+            // ── Dismiss: q only ──
+            // Escape is a no-op — both Triangle (Esc,Esc) and Circle (Esc)
+            // send Escape in terminal mode, causing accidental dismissals.
+            // Only 'q' reliably dismisses across keyboard + controller.
+            if (data === "q") {
                 finish(true);
                 return;
+            }
+            if (matchesKey(data, Key.escape)) {
+                return; // swallow
             }
             // ── Notes mode: 'i' (vim insert) or ≤ (Option+, / L1 on DualSense) ──
             if (data === "i" || data === "\u2264") {
@@ -250,7 +256,7 @@ export async function showInterviewUI(ctx, questions, config) {
                 const h = ["j/k nav", "Enter toggle", "Tab confirm", "i note"];
                 if (questions.length > 1)
                     h.push("h/l switch");
-                h.push("Esc quit");
+                h.push("q quit");
                 add(theme.fg("dim", `  ${h.join(" . ")}`));
             }
             add(theme.fg("accent", "\u2500".repeat(w)));
