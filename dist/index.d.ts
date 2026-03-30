@@ -1,8 +1,8 @@
 /**
- * pi-quiz — Multiple-choice next-prompt quiz for pi.
+ * pi-interview — Multiple-choice + notes interview for pi.
  *
- * Every question is multiple choice. Grounded in specific files, errors, signals.
- * Ctrl+Q to trigger. /quiz for commands. Haiku by default.
+ * Every question is multi-select with checkboxes. Grounded in specific files, errors, signals.
+ * Ctrl+I to trigger. /interview for commands. Haiku by default.
  */
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 export default function interview(pi: ExtensionAPI): void;

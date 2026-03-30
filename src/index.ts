@@ -1,8 +1,8 @@
 /**
- * pi-quiz — Multiple-choice next-prompt quiz for pi.
+ * pi-interview — Multiple-choice + notes interview for pi.
  *
- * Every question is multiple choice. Grounded in specific files, errors, signals.
- * Ctrl+Q to trigger. /quiz for commands. Haiku by default.
+ * Every question is multi-select with checkboxes. Grounded in specific files, errors, signals.
+ * Ctrl+I to trigger. /interview for commands. Haiku by default.
  */
 
 import type {
@@ -29,13 +29,13 @@ import type { TurnContext, QuizConfig } from "./core/types.js";
 import { DEFAULT_CONFIG } from "./core/types.js";
 import { getDemoTurn, listDemoScenarios } from "./core/demo.js";
 
-const CUSTOM_TYPE = "pi-quiz-state";
+const CUSTOM_TYPE = "pi-interview-state";
 
 export default function interview(pi: ExtensionAPI) {
   let config: QuizConfig = { ...DEFAULT_CONFIG };
   let ctx: ExtensionContext | undefined;
   let lastTurn: TurnContext | undefined;
-  let quizActive = false;
+  let ivActive = false;
   let epoch = 0;
   let state: QuizSessionState = emptyState();
   let projectSnapshot: ProjectSnapshot | undefined;
@@ -65,7 +65,7 @@ export default function interview(pi: ExtensionAPI) {
   function refreshUsageWidget() {
     if (!ctx?.hasUI) return;
     const status = formatUsageStatus(state);
-    ctx.ui.setStatus("quiz-usage", status);
+    ctx.ui.setStatus("iv-usage", status);
   }
 
   // ─── Project Context ──────────────────────────────────────────────────
@@ -75,7 +75,7 @@ export default function interview(pi: ExtensionAPI) {
       try {
         projectSnapshot = await buildProjectSnapshot(ctx.cwd);
       } catch {
-        // Non-critical — quiz works without it
+        // Non-critical — interview works without it
       }
     }
   }
@@ -88,10 +88,10 @@ export default function interview(pi: ExtensionAPI) {
     currentEpoch: number,
     manual: boolean = false
   ): Promise<void> {
-    if (!context.hasUI || quizActive) return;
+    if (!context.hasUI || ivActive) return;
     if (currentEpoch !== epoch) return;
 
-    // Don't re-quiz the same turn
+    // Don't re-interview the same turn
     if (!manual && state.lastQuizTurnId === turn.turnId) return;
 
     // Back-off after repeated skips/cancels (unless manual)
@@ -108,24 +108,24 @@ export default function interview(pi: ExtensionAPI) {
       return;
     }
 
-    quizActive = true;
+    ivActive = true;
 
     try {
       await ensureProjectSnapshot();
       const promptContext = buildQuizPromptContext(turn, config, projectSnapshot);
 
-      context.ui.setWidget("quiz-loading", [
-        `  ${context.ui.theme.fg("dim", "✦ quiz...")}`,
+      context.ui.setWidget("iv-loading", [
+        `  ${context.ui.theme.fg("dim", "✦ iv...")}`,
       ], { placement: "belowEditor" });
 
       const result = await modelClient.generateQuiz(promptContext, config);
 
       if (currentEpoch !== epoch) {
-        context.ui.setWidget("quiz-loading", undefined);
+        context.ui.setWidget("iv-loading", undefined);
         return;
       }
 
-      context.ui.setWidget("quiz-loading", undefined);
+      context.ui.setWidget("iv-loading", undefined);
 
       if (result.skipped || result.questions.length === 0) {
         state = recordQuizCall(state, result.usage, "skipped", turn.turnId);
@@ -134,10 +134,10 @@ export default function interview(pi: ExtensionAPI) {
 
         // Brief flash only on first few skips
         if (state.consecutiveSkips <= 2) {
-          context.ui.setWidget("quiz-loading", [
+          context.ui.setWidget("iv-loading", [
             `  ${context.ui.theme.fg("dim", `✦ —${result.skipReason ? ` ${result.skipReason}` : ""}`)}`,
           ], { placement: "belowEditor" });
-          setTimeout(() => context.ui.setWidget("quiz-loading", undefined), 1500);
+          setTimeout(() => context.ui.setWidget("iv-loading", undefined), 1500);
         }
         return;
       }
@@ -145,12 +145,12 @@ export default function interview(pi: ExtensionAPI) {
       // Show usage inline
       if (result.usage) {
         const cost = result.usage.costTotal ? ` $${result.usage.costTotal.toFixed(4)}` : "";
-        context.ui.setStatus("quiz", `✦ ${result.usage.totalTokens} tok${cost}`);
+        context.ui.setStatus("iv", `✦ ${result.usage.totalTokens} tok${cost}`);
       }
 
       const submission = await showInterviewUI(context, result.questions, config);
 
-      context.ui.setStatus("quiz", undefined);
+      context.ui.setStatus("iv", undefined);
 
       if (submission.cancelled) {
         state = recordQuizCall(state, result.usage, "cancelled", turn.turnId);
@@ -165,11 +165,11 @@ export default function interview(pi: ExtensionAPI) {
       persistState();
       refreshUsageWidget();
     } catch (error) {
-      context.ui.setWidget("quiz-loading", undefined);
+      context.ui.setWidget("iv-loading", undefined);
       const msg = error instanceof Error ? error.message : String(error);
-      context.ui.notify(`quiz: ${msg.slice(0, 80)}`, "error");
+      context.ui.notify(`interview: ${msg.slice(0, 80)}`, "error");
     } finally {
-      quizActive = false;
+      ivActive = false;
     }
   }
 
@@ -195,7 +195,7 @@ export default function interview(pi: ExtensionAPI) {
   pi.on("session_switch", async (_ev, c) => {
     ctx = c;
     epoch++;
-    quizActive = false;
+    ivActive = false;
     projectSnapshot = undefined;
     restoreState(c.sessionManager.getEntries() as any[]);
     refreshUsageWidget();
@@ -204,7 +204,7 @@ export default function interview(pi: ExtensionAPI) {
   pi.on("session_fork", async (_ev, c) => {
     ctx = c;
     epoch++;
-    quizActive = false;
+    ivActive = false;
     restoreState(c.sessionManager.getEntries() as any[]);
     refreshUsageWidget();
   });
@@ -237,7 +237,7 @@ export default function interview(pi: ExtensionAPI) {
   pi.on("input", async (_ev, c) => {
     ctx = c;
     epoch++;
-    c.ui.setWidget("quiz-loading", undefined);
+    c.ui.setWidget("iv-loading", undefined);
     return { action: "continue" };
   });
 
@@ -275,7 +275,7 @@ export default function interview(pi: ExtensionAPI) {
       if (sub === "status") {
         const usage = state.usage;
         const lines = [
-          `✦ pi-quiz`,
+          `✦ pi-interview`,
           `mode: ${config.mode} · model: ${config.model}`,
           `maxQ: ${config.maxQuestions} · maxOpts: ${config.maxOptions}`,
           `calls: ${usage.calls} (${usage.completions} used, ${usage.skips} skipped, ${usage.cancels} cancelled)`,
@@ -286,7 +286,7 @@ export default function interview(pi: ExtensionAPI) {
           lines.push(`project: ${projectSnapshot.name}${projectSnapshot.branch ? ` (${projectSnapshot.branch})` : ""}`);
         }
         pi.sendMessage({
-          customType: "quiz-info",
+          customType: "iv-info",
           content: lines.join("\n"),
           display: true,
         }, { triggerTurn: false });
@@ -297,7 +297,7 @@ export default function interview(pi: ExtensionAPI) {
         state = emptyState();
         persistState();
         refreshUsageWidget();
-        c.ui.notify("quiz state reset", "info");
+        c.ui.notify("interview state reset", "info");
         return;
       }
 

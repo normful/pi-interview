@@ -224,31 +224,33 @@ export async function showInterviewUI(
       const question = q();
       const sel = selections.get(question.id)!;
 
+      // Helper: every line MUST be truncated to width to prevent TUI crash
+      const add = (s: string) => lines.push(truncateToWidth(s, w));
+      const blank = () => lines.push("");
+
       // Top border
-      lines.push(theme.fg("accent", "─".repeat(w)));
+      add(theme.fg("accent", "─".repeat(w)));
 
       // Progress dots
       if (questions.length > 1) {
         const dots = questions.map((qn, i) => {
           const hasSelection = (selections.get(qn.id)?.size ?? 0) > 0;
-          const hasNote = notes.has(qn.id);
           const active = i === currentQ;
           const dot = hasSelection ? "●" : "○";
-          const noteIcon = hasNote ? "📝" : "";
           const styled = active ? theme.fg("accent", dot) : theme.fg(hasSelection ? "success" : "dim", dot);
-          return styled + noteIcon;
+          return styled;
         }).join(" ");
-        lines.push(` ${theme.fg("accent", "✦")} ${dots}`);
+        add(` ${theme.fg("accent", "✦")} ${dots}`);
       } else {
-        lines.push(` ${theme.fg("accent", "✦")}`);
+        add(` ${theme.fg("accent", "✦")}`);
       }
 
       // Question text
       const qLines = wrapTextWithAnsi(theme.bold(question.text), w - 2);
       for (const ql of qLines) {
-        lines.push(` ${ql}`);
+        add(` ${ql}`);
       }
-      lines.push("");
+      blank();
 
       // Options with checkboxes
       const opts = question.options;
@@ -257,56 +259,56 @@ export async function showInterviewUI(
         const isCursor = i === optionCursor;
         const isChecked = sel.has(i);
 
-        const pointer = isCursor ? theme.fg("accent", " ❯ ") : "   ";
-        const box = isChecked ? theme.fg("success", "☑") : theme.fg("muted", "☐");
+        const pointer = isCursor ? theme.fg("accent", " > ") : "   ";
+        const box = isChecked ? theme.fg("success", "[x]") : theme.fg("muted", "[ ]");
         const num = theme.fg("dim", `${i + 1}`);
         const color = isCursor ? "accent" : isChecked ? "success" : "text";
 
-        const optLines = wrapTextWithAnsi(opt.label, w - 10);
+        const optLines = wrapTextWithAnsi(opt.label, w - 12);
         for (let li = 0; li < optLines.length; li++) {
           if (li === 0) {
-            lines.push(`${pointer}${box} ${num} ${theme.fg(color, optLines[li])}`);
+            add(`${pointer}${box} ${num} ${theme.fg(color, optLines[li])}`);
           } else {
-            lines.push(`        ${theme.fg(color, optLines[li])}`);
+            add(`          ${theme.fg(color, optLines[li])}`);
           }
         }
         if (opt.description) {
-          const descLines = wrapTextWithAnsi(opt.description, w - 10);
+          const descLines = wrapTextWithAnsi(opt.description, w - 12);
           for (const dl of descLines) {
-            lines.push(`        ${theme.fg("dim", dl)}`);
+            add(`          ${theme.fg("dim", dl)}`);
           }
         }
       }
 
       // Selection count
       if (sel.size > 0) {
-        lines.push("");
+        blank();
         const selectedLabels = [...sel].sort((a, b) => a - b).map((i) => opts[i]?.label).filter(Boolean);
-        lines.push(`  ${theme.fg("success", `${sel.size} selected`)} ${theme.fg("dim", selectedLabels.join(", "))}`);
+        add(`  ${theme.fg("success", `${sel.size} selected`)}`);
       }
 
       // Notes section
-      lines.push("");
+      blank();
       const existingNote = notes.get(question.id);
       if (noteMode) {
         const display = noteText || theme.fg("dim", "add a note...");
-        lines.push(`  ${theme.fg("accent", "📝")} ${display}${theme.fg("accent", "█")}`);
-        lines.push(theme.fg("dim", "  Enter/Esc save"));
+        add(`  notes: ${display}_`);
+        add(theme.fg("dim", "  Enter/Esc save"));
       } else if (existingNote) {
-        lines.push(`  ${theme.fg("muted", "📝")} ${theme.fg("dim", existingNote)}`);
+        add(`  ${theme.fg("dim", "note: " + existingNote)}`);
       }
 
       // Help bar
-      lines.push("");
+      blank();
       if (!noteMode) {
-        const hints: string[] = ["↑↓ navigate", "Space toggle", "Enter confirm", "n note"];
+        const hints: string[] = ["up/dn", "Space toggle", "Enter confirm", "n note"];
         if (questions.length > 1) hints.push("Tab next");
         hints.push("Esc dismiss");
-        lines.push(theme.fg("dim", `  ${hints.join(" · ")}`));
+        add(theme.fg("dim", `  ${hints.join(" . ")}`));
       }
 
       // Bottom border
-      lines.push(theme.fg("accent", "─".repeat(w)));
+      add(theme.fg("accent", "─".repeat(w)));
       cachedLines = lines;
       return lines;
     }

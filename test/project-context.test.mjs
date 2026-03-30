@@ -5,7 +5,7 @@ import { buildProjectSnapshot, formatProjectContext } from "../dist/core/project
 describe("buildProjectSnapshot", () => {
   it("scans pi-interview repo", async () => {
     const snap = await buildProjectSnapshot("/Users/luke/Developer/packages/pi-interview");
-    assert.equal(snap.name, "pi-interview");
+    assert.equal(snap.name, "@lnittman/pi-interview");
     assert.ok(snap.branch, "should have a branch");
     assert.ok(snap.scripts.length > 0, "should have scripts");
     assert.ok(snap.recentCommits.length > 0, "should have commits");
