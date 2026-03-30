@@ -86,7 +86,7 @@ export interface QuizConfig {
 }
 
 export const DEFAULT_CONFIG: QuizConfig = {
-  model: "anthropic/claude-haiku-4-5-20251001",
+  model: "anthropic/claude-sonnet-4-6",
   maxQuestions: 3,
   maxOptions: 5,
   maxPromptChars: 500,

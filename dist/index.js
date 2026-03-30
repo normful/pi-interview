@@ -43,7 +43,7 @@ export default function interview(pi) {
         if (!ctx?.hasUI)
             return;
         const status = formatUsageStatus(state);
-        ctx.ui.setStatus("iv-usage", status);
+        ctx.ui.setStatus("interview-usage", status);
     }
     // ─── Context Enrichment ────────────────────────────────────────────────
     async function ensureContexts() {
@@ -85,42 +85,44 @@ export default function interview(pi) {
         try {
             await ensureContexts();
             const promptContext = buildQuizPromptContext(turn, config, projectSnapshot, agentCtx);
-            context.ui.setWidget("iv-loading", [
+            context.ui.setWidget("interview-loading", [
                 `  ${context.ui.theme.fg("dim", "✦ interview...")}`,
             ], { placement: "belowEditor" });
             const result = await modelClient.generateQuiz(promptContext, config);
             if (currentEpoch !== epoch) {
-                context.ui.setWidget("iv-loading", undefined);
+                context.ui.setWidget("interview-loading", undefined);
                 return;
             }
-            context.ui.setWidget("iv-loading", undefined);
+            context.ui.setWidget("interview-loading", undefined);
             if (result.skipped || result.questions.length === 0) {
                 state = recordQuizCall(state, result.usage, "skipped", turn.turnId);
                 persistState();
                 refreshUsageWidget();
                 // Brief flash only on first few skips
                 if (state.consecutiveSkips <= 2) {
-                    context.ui.setWidget("iv-loading", [
+                    context.ui.setWidget("interview-loading", [
                         `  ${context.ui.theme.fg("dim", `✦ —${result.skipReason ? ` ${result.skipReason}` : ""}`)}`,
                     ], { placement: "belowEditor" });
-                    setTimeout(() => context.ui.setWidget("iv-loading", undefined), 1500);
+                    setTimeout(() => context.ui.setWidget("interview-loading", undefined), 1500);
                 }
                 return;
             }
             // Show usage inline
             if (result.usage) {
                 const cost = result.usage.costTotal ? ` $${result.usage.costTotal.toFixed(4)}` : "";
-                context.ui.setStatus("iv", `✦ ${result.usage.totalTokens} tok${cost}`);
+                context.ui.setStatus("interview", `✦ ${result.usage.totalTokens} tok${cost}`);
             }
             const submission = await showInterviewUI(context, result.questions, config);
-            context.ui.setStatus("iv", undefined);
+            context.ui.setStatus("interview", undefined);
             if (submission.cancelled) {
                 state = recordQuizCall(state, result.usage, "cancelled", turn.turnId);
             }
             else {
                 state = recordQuizCall(state, result.usage, "completed", turn.turnId);
                 if (submission.composedPrompt) {
-                    // Send directly as a user message — don't pollute the editor
+                    // Small delay to let the custom component fully tear down
+                    // and avoid the Enter keypress leaking to the restored editor
+                    await new Promise((r) => setTimeout(r, 50));
                     pi.sendUserMessage(submission.composedPrompt);
                 }
             }
@@ -128,7 +130,7 @@ export default function interview(pi) {
             refreshUsageWidget();
         }
         catch (error) {
-            context.ui.setWidget("iv-loading", undefined);
+            context.ui.setWidget("interview-loading", undefined);
             const msg = error instanceof Error ? error.message : String(error);
             context.ui.notify(`interview: ${msg.slice(0, 80)}`, "error");
         }
@@ -193,7 +195,7 @@ export default function interview(pi) {
     pi.on("input", async (_ev, c) => {
         ctx = c;
         epoch++;
-        c.ui.setWidget("iv-loading", undefined);
+        c.ui.setWidget("interview-loading", undefined);
         return { action: "continue" };
     });
     // ─── Commands ─────────────────────────────────────────────────────────
@@ -237,7 +239,7 @@ export default function interview(pi) {
                     lines.push(`project: ${projectSnapshot.name}${projectSnapshot.branch ? ` (${projectSnapshot.branch})` : ""}`);
                 }
                 pi.sendMessage({
-                    customType: "iv-info",
+                    customType: "interview-info",
                     content: lines.join("\n"),
                     display: true,
                 }, { triggerTurn: false });
