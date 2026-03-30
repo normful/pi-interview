@@ -9,6 +9,7 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
+import { Text } from "@mariozechner/pi-tui";
 import { completeSimple } from "@mariozechner/pi-ai";
 import { buildTurnContext, buildTurnContextFromBranch } from "./core/signals.js";
 import { buildQuizPromptContext } from "./prompts/interview-template.js";
@@ -37,6 +38,35 @@ import {
 const CUSTOM_TYPE = "pi-interview-state";
 
 export default function interview(pi: ExtensionAPI) {
+  // Register custom renderer for interview answers
+  pi.registerMessageRenderer("pi-interview-answer", (message, options, theme) => {
+    const details = message.details as { answers?: any[]; durationMs?: number } | undefined;
+    const answers = details?.answers ?? [];
+    const lines: string[] = [];
+
+    lines.push(theme.fg("accent", "\u2726 interview response"));
+    lines.push("");
+
+    for (const a of answers) {
+      if (a.skipped) continue;
+      if (a.selectedOptions?.length) {
+        for (const opt of a.selectedOptions) {
+          lines.push(`  ${theme.fg("success", "[x]")} ${opt}`);
+        }
+      }
+      if (a.text) {
+        lines.push(`  ${theme.fg("dim", "note:")} ${a.text}`);
+      }
+    }
+
+    if (details?.durationMs) {
+      lines.push("");
+      lines.push(theme.fg("dim", `  ${(details.durationMs / 1000).toFixed(1)}s`));
+    }
+
+    return new Text(lines.join("\n"), 0, 0);
+  });
+
   let config: QuizConfig = { ...DEFAULT_CONFIG };
   let ctx: ExtensionContext | undefined;
   let lastTurn: TurnContext | undefined;
@@ -173,9 +203,18 @@ export default function interview(pi: ExtensionAPI) {
         state = recordQuizCall(state, result.usage, "completed", turn.turnId);
         if (submission.composedPrompt) {
           // Small delay to let the custom component fully tear down
-          // and avoid the Enter keypress leaking to the restored editor
           await new Promise((r) => setTimeout(r, 50));
-          pi.sendUserMessage(submission.composedPrompt);
+          // Send as a custom rendered message that triggers a turn
+          // — NOT sendUserMessage which dumps raw text into the prompt bar
+          pi.sendMessage({
+            customType: "pi-interview-answer",
+            content: submission.composedPrompt,
+            display: true,
+            details: {
+              answers: submission.answers,
+              durationMs: submission.durationMs,
+            },
+          }, { triggerTurn: true });
         }
       }
 

@@ -1,18 +1,17 @@
 /**
- * Interview UI — multi-select + notes, controller-ergonomic.
+ * Interview UI — multi-select + notes, controller + keyboard ergonomic.
  *
- * Key design for DualSense compatibility:
- *   D-pad up/down → arrow keys → navigate options (works via karabiner rule 04)
- *   Cross/X (button1) → Enter → confirm selection
- *   Circle (button2) → Escape → dismiss (but we require DOUBLE escape to cancel,
- *     so a single triangle press in nvim terminal mode doesn't accidentally dismiss)
- *   Space → toggle checkbox
- *   'n' → notes mode (safe — not mapped to any face button)
- *   Number keys → quick-toggle
- *   Tab → next question (L1/R1 in some configs)
- *
- * No coupling to any specific controller config — just robust key handling
- * that doesn't break under common terminal escape sequences.
+ * Key mappings:
+ *   j/k or ↑↓ or D-pad     → navigate options
+ *   Enter/Space/Cross(×)    → toggle checkbox
+ *   Tab/R2                  → confirm & advance
+ *   i                       → notes mode (vim insert)
+ *   ≤ (Option+, / L1)       → notes mode (DualSense)
+ *   ≥ (Option+. / R1)       → toggle checkbox (DualSense)
+ *   h/l or ←→               → switch question
+ *   Escape/Circle(○)        → dismiss
+ *   q                       → dismiss
+ *   1-9                     → quick-toggle option
  */
 import { Key, matchesKey, truncateToWidth, wrapTextWithAnsi, } from "@mariozechner/pi-tui";
 import { buildSubmission } from "../prompts/compose-template.js";
@@ -43,7 +42,7 @@ export async function showInterviewUI(ctx, questions, config) {
             const allAnswers = questions.map((question) => {
                 const sel = selections.get(question.id);
                 const selectedLabels = sel && sel.size > 0
-                    ? [...sel].sort((a, b) => a - b).map((i) => question.options[i]?.label).filter(Boolean)
+                    ? [...sel].sort((a, b) => a - b).map((idx) => question.options[idx]?.label).filter(Boolean)
                     : undefined;
                 const note = notes.get(question.id);
                 return {
@@ -60,6 +59,7 @@ export async function showInterviewUI(ctx, questions, config) {
                 finish(false);
                 return;
             }
+            // Next unanswered
             for (let i = currentQ + 1; i < questions.length; i++) {
                 const sel = selections.get(questions[i].id);
                 if (!sel || sel.size === 0) {
@@ -80,6 +80,14 @@ export async function showInterviewUI(ctx, questions, config) {
             }
             finish(false);
         }
+        function toggleCurrent() {
+            const sel = selections.get(q().id);
+            if (sel.has(optionCursor))
+                sel.delete(optionCursor);
+            else
+                sel.add(optionCursor);
+            refresh();
+        }
         function handleInput(data) {
             // ── Note mode ──
             if (noteMode) {
@@ -96,34 +104,26 @@ export async function showInterviewUI(ctx, questions, config) {
                     refresh();
                     return;
                 }
-                if (data.length === 1 && data.charCodeAt(0) >= 32) {
+                if (data.length >= 1 && data.charCodeAt(0) >= 32 && data.charCodeAt(0) < 127) {
                     noteText += data;
                     refresh();
                     return;
                 }
                 return;
             }
-            // ── Escape handling ──
-            // 'q' is the reliable dismiss key (like vim :q) — works on any input device.
-            // Escape is intentionally a no-op in the main interview UI to prevent
-            // accidental dismissal from terminal escape sequences, controller mappings,
-            // or nvim mode-switch keybinds that emit Escape.
-            if (data === "q") {
+            // ── Dismiss: q or Escape or Circle(○) ──
+            if (data === "q" || matchesKey(data, Key.escape)) {
                 finish(true);
                 return;
             }
-            // Escape does nothing in selection mode — prevents accidental dismiss
-            if (matchesKey(data, Key.escape)) {
-                return;
-            }
-            // ── Notes mode: 'n' key or Alt+, (L1 on DualSense) ──
-            if (data === "n" || data === "\x1b,") {
+            // ── Notes mode: 'i' (vim insert) or ≤ (Option+, / L1 on DualSense) ──
+            if (data === "i" || data === "\u2264") {
                 noteMode = true;
                 noteText = notes.get(q().id) || "";
                 refresh();
                 return;
             }
-            // ── Arrow / vim navigation ──
+            // ── Navigate: j/k or ↑↓ ──
             if (matchesKey(data, Key.up) || data === "k") {
                 optionCursor = Math.max(0, optionCursor - 1);
                 refresh();
@@ -134,7 +134,20 @@ export async function showInterviewUI(ctx, questions, config) {
                 refresh();
                 return;
             }
-            // ── h/l or Shift+Tab/L2: switch question ──
+            // ── Toggle: Enter / Space / ≥ (Option+. / R1) ──
+            if (matchesKey(data, Key.enter) || matchesKey(data, Key.space) || data === "\u2265") {
+                toggleCurrent();
+                return;
+            }
+            // ── Confirm & advance: Tab / R2 ──
+            if (matchesKey(data, Key.tab)) {
+                const sel = selections.get(q().id);
+                if (sel.size === 0)
+                    sel.add(optionCursor);
+                advance();
+                return;
+            }
+            // ── Switch question: h/l or ←→ or Shift+Tab ──
             if (data === "l" || matchesKey(data, Key.right)) {
                 if (questions.length > 1) {
                     currentQ = (currentQ + 1) % questions.length;
@@ -151,27 +164,6 @@ export async function showInterviewUI(ctx, questions, config) {
                 }
                 return;
             }
-            // ── Enter / Space / Alt+. (R1): toggle checkbox ──
-            // Cross (×) on DualSense sends Enter. Space on keyboard.
-            // All three toggle the current option.
-            if (matchesKey(data, Key.enter) || matchesKey(data, Key.space) || data === "\x1b.") {
-                const sel = selections.get(q().id);
-                if (sel.has(optionCursor))
-                    sel.delete(optionCursor);
-                else
-                    sel.add(optionCursor);
-                refresh();
-                return;
-            }
-            // ── Tab / R2: confirm and advance ──
-            // Tab on keyboard, R2 on DualSense.
-            if (matchesKey(data, Key.tab)) {
-                const sel = selections.get(q().id);
-                if (sel.size === 0)
-                    sel.add(optionCursor);
-                advance();
-                return;
-            }
             // ── Number keys: quick-toggle ──
             if (data.length === 1 && data >= "1" && data <= "9") {
                 const num = parseInt(data, 10) - 1;
@@ -182,8 +174,8 @@ export async function showInterviewUI(ctx, questions, config) {
                     else
                         sel.add(num);
                     refresh();
-                    return;
                 }
+                return;
             }
         }
         function render(width) {
@@ -195,13 +187,13 @@ export async function showInterviewUI(ctx, questions, config) {
             const sel = selections.get(question.id);
             const add = (s) => lines.push(truncateToWidth(s, w));
             const blank = () => lines.push("");
-            add(theme.fg("accent", "─".repeat(w)));
-            // Progress dots
+            add(theme.fg("accent", "\u2500".repeat(w)));
+            // Progress
             if (questions.length > 1) {
-                const dots = questions.map((qn, i) => {
+                const dots = questions.map((qn, idx) => {
                     const has = (selections.get(qn.id)?.size ?? 0) > 0;
-                    const active = i === currentQ;
-                    const dot = has ? "●" : "○";
+                    const active = idx === currentQ;
+                    const dot = has ? "\u25cf" : "\u25cb";
                     return active ? theme.fg("accent", dot) : theme.fg(has ? "success" : "dim", dot);
                 }).join(" ");
                 add(` ${theme.fg("accent", "*")} ${dots}`);
@@ -216,30 +208,27 @@ export async function showInterviewUI(ctx, questions, config) {
             blank();
             // Options
             const opts = question.options;
-            for (let i = 0; i < opts.length; i++) {
-                const opt = opts[i];
-                const isCursor = i === optionCursor;
-                const isChecked = sel.has(i);
-                const pointer = isCursor ? theme.fg("accent", " > ") : "   ";
-                const box = isChecked ? theme.fg("success", "[x]") : theme.fg("muted", "[ ]");
-                const num = theme.fg("dim", `${i + 1}`);
-                const color = isCursor ? "accent" : isChecked ? "success" : "text";
+            for (let idx = 0; idx < opts.length; idx++) {
+                const opt = opts[idx];
+                const cursor = idx === optionCursor;
+                const checked = sel.has(idx);
+                const pointer = cursor ? theme.fg("accent", " > ") : "   ";
+                const box = checked ? theme.fg("success", "[x]") : theme.fg("muted", "[ ]");
+                const num = theme.fg("dim", `${idx + 1}`);
+                const color = cursor ? "accent" : checked ? "success" : "text";
                 const optLines = wrapTextWithAnsi(opt.label, w - 12);
                 for (let li = 0; li < optLines.length; li++) {
-                    if (li === 0) {
-                        add(`${pointer}${box} ${num} ${theme.fg(color, optLines[li])}`);
-                    }
-                    else {
-                        add(`          ${theme.fg(color, optLines[li])}`);
-                    }
+                    add(li === 0
+                        ? `${pointer}${box} ${num} ${theme.fg(color, optLines[li])}`
+                        : `          ${theme.fg(color, optLines[li])}`);
                 }
                 if (opt.description) {
-                    const descLines = wrapTextWithAnsi(opt.description, w - 12);
-                    for (const dl of descLines)
+                    for (const dl of wrapTextWithAnsi(opt.description, w - 12)) {
                         add(`          ${theme.fg("dim", dl)}`);
+                    }
                 }
             }
-            // Selection summary
+            // Selection count
             if (sel.size > 0) {
                 blank();
                 add(`  ${theme.fg("success", `${sel.size} selected`)}`);
@@ -248,27 +237,23 @@ export async function showInterviewUI(ctx, questions, config) {
             blank();
             const existingNote = notes.get(question.id);
             if (noteMode) {
-                const display = noteText || theme.fg("dim", "add a note...");
-                add(`  notes: ${display}_`);
-                add(theme.fg("dim", "  Enter/Esc save"));
+                const display = noteText || theme.fg("dim", "type a note...");
+                add(`  note: ${display}_`);
+                add(theme.fg("dim", "  Enter save . Esc cancel"));
             }
             else if (existingNote) {
                 add(`  ${theme.fg("dim", "note: " + existingNote)}`);
             }
-            // Help + escape state
+            // Hints
             blank();
             if (!noteMode) {
-                const hints = [];
-                hints.push("j/k nav");
-                hints.push("Enter/Space toggle");
-                hints.push("Tab confirm");
-                hints.push("n note");
+                const h = ["j/k nav", "Enter toggle", "Tab confirm", "i note"];
                 if (questions.length > 1)
-                    hints.push("h/l question");
-                hints.push("q quit");
-                add(theme.fg("dim", `  ${hints.join(" . ")}`));
+                    h.push("h/l switch");
+                h.push("Esc quit");
+                add(theme.fg("dim", `  ${h.join(" . ")}`));
             }
-            add(theme.fg("accent", "─".repeat(w)));
+            add(theme.fg("accent", "\u2500".repeat(w)));
             cachedLines = lines;
             return lines;
         }
