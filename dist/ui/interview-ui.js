@@ -27,8 +27,6 @@ export async function showInterviewUI(ctx, questions, config) {
         let noteMode = false;
         let noteText = "";
         let cachedLines;
-        let pendingEscape = false;
-        let escapeTimer;
         const selections = new Map();
         const notes = new Map();
         for (const q of questions) {
@@ -42,8 +40,6 @@ export async function showInterviewUI(ctx, questions, config) {
             return questions[currentQ];
         }
         function finish(cancelled) {
-            if (escapeTimer)
-                clearTimeout(escapeTimer);
             const allAnswers = questions.map((question) => {
                 const sel = selections.get(question.id);
                 const selectedLabels = sel && sel.size > 0
@@ -92,7 +88,6 @@ export async function showInterviewUI(ctx, questions, config) {
                     if (trimmed)
                         notes.set(q().id, trimmed);
                     noteMode = false;
-                    pendingEscape = false;
                     refresh();
                     return;
                 }
@@ -108,30 +103,21 @@ export async function showInterviewUI(ctx, questions, config) {
                 }
                 return;
             }
-            // ── Double-escape to dismiss ──
-            // Single Escape is too easy to hit accidentally (e.g. DualSense triangle
-            // in nvim terminal mode sends Esc+Esc). Require two Escapes within 400ms.
-            if (matchesKey(data, Key.escape)) {
-                if (pendingEscape) {
-                    if (escapeTimer)
-                        clearTimeout(escapeTimer);
-                    pendingEscape = false;
-                    finish(true);
-                    return;
-                }
-                pendingEscape = true;
-                escapeTimer = setTimeout(() => { pendingEscape = false; }, 400);
-                refresh();
+            // ── Escape handling ──
+            // 'q' is the reliable dismiss key (like vim :q) — works on any input device.
+            // Escape is intentionally a no-op in the main interview UI to prevent
+            // accidental dismissal from terminal escape sequences, controller mappings,
+            // or nvim mode-switch keybinds that emit Escape.
+            if (data === "q") {
+                finish(true);
                 return;
             }
-            // Any non-escape key clears the pending escape
-            if (pendingEscape) {
-                pendingEscape = false;
-                if (escapeTimer)
-                    clearTimeout(escapeTimer);
+            // Escape does nothing in selection mode — prevents accidental dismiss
+            if (matchesKey(data, Key.escape)) {
+                return;
             }
-            // ── 'n' key: notes mode ──
-            if (data === "n") {
+            // ── Notes mode: 'n' key or Alt+, (L1 on DualSense) ──
+            if (data === "n" || data === "\x1b,") {
                 noteMode = true;
                 noteText = notes.get(q().id) || "";
                 refresh();
@@ -165,8 +151,8 @@ export async function showInterviewUI(ctx, questions, config) {
                 }
                 return;
             }
-            // ── Space: toggle checkbox ──
-            if (matchesKey(data, Key.space)) {
+            // ── Space or Alt+. (R1): toggle checkbox ──
+            if (matchesKey(data, Key.space) || data === "\x1b.") {
                 const sel = selections.get(q().id);
                 if (sel.has(optionCursor))
                     sel.delete(optionCursor);
@@ -271,14 +257,12 @@ export async function showInterviewUI(ctx, questions, config) {
             if (!noteMode) {
                 const hints = [];
                 hints.push("j/k nav");
-                hints.push("Space toggle");
+                hints.push("Space/R1 toggle");
                 hints.push("Enter confirm");
-                hints.push("n note");
+                hints.push("n/L1 note");
                 if (questions.length > 1)
                     hints.push("h/l question");
-                hints.push(pendingEscape
-                    ? theme.fg("warning", "Esc again to dismiss")
-                    : "Esc Esc dismiss");
+                hints.push("q quit");
                 add(theme.fg("dim", `  ${hints.join(" . ")}`));
             }
             add(theme.fg("accent", "─".repeat(w)));
