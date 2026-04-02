@@ -90,7 +90,7 @@ export interface QuizConfig {
 }
 
 export const DEFAULT_CONFIG: QuizConfig = {
-  model: "anthropic/claude-sonnet-4-6",
+  model: "aihubmix-am/cc-minimax-m2.7-highspeed",
   maxQuestions: 3,
   maxOptions: 5,
   maxPromptChars: 500,
